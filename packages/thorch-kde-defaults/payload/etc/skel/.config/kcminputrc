@@ -1,0 +1,4 @@
+[Libinput]
+# Thorch uses ROCKNIX-style libinput calibration matrices by stable ID_PATH.
+# Avoid per-device KWin OutputName/Orientation seeds here so KWin preserves the
+# side-by-side 3160x1080 touch coordinate model.

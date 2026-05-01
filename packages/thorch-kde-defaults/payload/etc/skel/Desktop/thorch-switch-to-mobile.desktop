@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Switch to Mobile
+Comment=Restart into Plasma Mobile
+Exec=/usr/bin/thorch-switch-session mobile
+Icon=smartphone
+Terminal=false
+Categories=System;

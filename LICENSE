@@ -1,0 +1,14 @@
+Thorch source license
+=========================
+
+Unless a file says otherwise, Thorch-specific source code, packaging recipes,
+build scripts, installer scripts, configuration, and documentation in this
+repository are licensed under the GNU General Public License version 2 or later:
+
+SPDX-License-Identifier: GPL-2.0-or-later
+
+Thorch builds images from third-party upstream projects and imported
+artifacts. Those inputs keep their own licenses, notices, and provenance. In
+particular, imported Linux kernel artifacts, Arch Linux ARM packages, ROCKNIX
+firmware, FEX, KDE, Valve/Steam payloads fetched by user opt-in installers, and
+device/vendor names are not relicensed by this repository.

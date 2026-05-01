@@ -1,0 +1,22 @@
+# Maintainer: Thorch contributors
+
+pkgname=thorch-gaming-installers
+pkgver=1
+pkgrel=9
+pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
+arch=(aarch64)
+license=(GPL-2.0-or-later)
+depends=(bash binutils coreutils curl file jq libxinerama lsof openal python squashfs-tools tar unzip thorch-firmware-rocknix wget thorch-fex-bin)
+optdepends=('gamescope: Steam gamepad UI session'
+            'vulkan-tools: Vulkan diagnostics')
+source=()
+sha256sums=()
+
+package() {
+  cd "${startdir}/payload"
+  cp -a . "${pkgdir}/"
+  chmod 755 "${pkgdir}/usr/bin/thorch-install-fex"
+  chmod 755 "${pkgdir}/usr/bin/thorch-install-gaming-stack"
+  chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-gaming-stack-installer.desktop"
+}

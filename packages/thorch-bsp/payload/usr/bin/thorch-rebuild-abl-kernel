@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: thorch-rebuild-abl-kernel [--boot-dir /boot] [--root-uuid UUID] [--rootfstype ext4]
+
+Rebuilds the Android-style /KERNEL boot image expected by the Thor ABL Linux
+path. It does not flash ABL.
+EOF
+}
+
+require_value() {
+  local opt="$1" value="${2:-}"
+  [[ -n "${value}" ]] || {
+    usage
+    echo "${opt} requires a value" >&2
+    exit 2
+  }
+}
+
+boot_dir=/boot
+root_uuid=""
+rootfstype=ext4
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --boot-dir)
+      require_value "$1" "${2:-}"
+      boot_dir="$2"
+      shift 2
+      ;;
+    --root-uuid)
+      require_value "$1" "${2:-}"
+      root_uuid="$2"
+      shift 2
+      ;;
+    --rootfstype)
+      require_value "$1" "${2:-}"
+      rootfstype="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
+}
+
+need mkbootimg
+need gzip
+
+if [[ -z "${root_uuid}" ]]; then
+  cmdline="$(cat /proc/cmdline 2>/dev/null || true)"
+  if [[ "${cmdline}" =~ root=UUID=([^[:space:]]+) ]]; then
+    root_uuid="${BASH_REMATCH[1]}"
+  else
+    fail "unable to find root UUID; pass --root-uuid"
+  fi
+fi
+
+kernel_image="${boot_dir}/Image"
+initrd_image="${boot_dir}/initramfs-linux-thorch.img"
+dtb_image="${boot_dir}/dtb/qcom/qcs8550-ayn-thor.dtb"
+
+[[ -f "${kernel_image}" ]] || fail "missing kernel image: ${kernel_image}"
+[[ -f "${initrd_image}" ]] || fail "missing initramfs: ${initrd_image}"
+[[ -f "${dtb_image}" ]] || fail "missing Thor DTB: ${dtb_image}"
+
+tmpdir="$(mktemp -d)"
+cleanup() {
+  rm -rf "${tmpdir}"
+}
+trap cleanup EXIT
+
+mkdir -p "${tmpdir}/py/gki"
+touch "${tmpdir}/py/gki/__init__.py"
+cat > "${tmpdir}/py/gki/generate_gki_certificate.py" <<'PY'
+def generate_gki_certificate(*args, **kwargs):
+    return None
+PY
+
+gzip -c "${kernel_image}" > "${tmpdir}/Image.gz"
+cat "${tmpdir}/Image.gz" "${dtb_image}" > "${tmpdir}/Image.gz-dtb"
+
+PYTHONPATH="${tmpdir}/py${PYTHONPATH:+:${PYTHONPATH}}" mkbootimg \
+  --kernel "${tmpdir}/Image.gz-dtb" \
+  --ramdisk "${initrd_image}" \
+  --base 0x0 \
+  --second_offset 0x00f00000 \
+  --cmdline "clk_ignore_unused pd_ignore_unused panic=30 audit=0 allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2 cgroup.memory=nokmem,nosocket nosoftlockup quiet rw rootwait rootdelay=15 mem_sleep_default=s2idle console=tty0 console=ttyMSM0,115200n8 fbcon=rotate:1 root=UUID=${root_uuid} rootfstype=${rootfstype}" \
+  --kernel_offset 0x8000 \
+  --ramdisk_offset 0x1000000 \
+  --tags_offset 0x100 \
+  --pagesize 4096 \
+  -o "${boot_dir}/KERNEL"
+
+echo "rebuilt ${boot_dir}/KERNEL for root UUID ${root_uuid}"

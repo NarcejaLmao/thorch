@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+
+alsaucm -c hw:0 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
+	alsaucm -c AYN-Odin2 set _verb HiFi set _enadev Speaker >/dev/null 2>&1 ||
+	true
+amixer -c 0 cset name="RX_RX0 Digital Volume" 84 >/dev/null 2>&1 || true
+amixer -c 0 cset name="RX_RX1 Digital Volume" 84 >/dev/null 2>&1 || true
+amixer -c 0 cset name="HPHL Volume" 20 >/dev/null 2>&1 || true
+amixer -c 0 cset name="HPHR Volume" 20 >/dev/null 2>&1 || true
+amixer -c 0 cset name="ADC2 Volume" 10 >/dev/null 2>&1 || true
+
+if command -v pactl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+	pactl set-card-profile alsa_card.platform-sound "HiFi (Headphones, Speaker)" >/dev/null 2>&1 || true
+	pactl set-default-sink alsa_output.platform-sound.HiFi__Speaker__sink >/dev/null 2>&1 || true
+fi

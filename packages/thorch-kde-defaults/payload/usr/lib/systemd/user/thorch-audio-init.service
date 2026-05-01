@@ -1,0 +1,11 @@
+[Unit]
+Description=Initialize Thorch speaker audio routing
+After=pipewire.service wireplumber.service pipewire-pulse.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/thorch-audio-init
+
+[Install]
+WantedBy=default.target
+

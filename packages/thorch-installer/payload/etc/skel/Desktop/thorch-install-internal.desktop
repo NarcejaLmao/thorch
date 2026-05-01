@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install to Internal
+Comment=Install Thorch from SD to internal storage
+Exec=thorch-install-internal-launcher
+Icon=drive-harddisk
+Terminal=true
+Categories=System;

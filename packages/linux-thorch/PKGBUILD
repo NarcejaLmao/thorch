@@ -1,0 +1,68 @@
+# Maintainer: Thorch contributors
+
+pkgname=linux-thorch
+pkgver=7.0.2
+pkgrel=1
+pkgdesc='Thorch-packaged ROCKNIX Linux kernel artifacts for AYN Thor / Qualcomm SM8550'
+arch=(aarch64)
+url='https://github.com/ROCKNIX/distribution'
+license=(GPL-2.0-only)
+depends=(coreutils kmod mkinitcpio)
+provides=(linux)
+conflicts=(linux)
+options=('!strip')
+
+_kernel_dir="${THORCH_ROCKNIX_KERNEL_DIR:-${startdir}/../../vendor/rocknix-kernel}"
+
+package() {
+  local image="${_kernel_dir}/boot/Image"
+  local dtb="${_kernel_dir}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
+  local modules_root="${_kernel_dir}/usr/lib/modules"
+  local kernver
+
+  if [[ ! -f "${image}" || ! -f "${dtb}" || ! -d "${modules_root}" ]]; then
+    cat >&2 <<EOF
+Missing ROCKNIX kernel artifacts at:
+  ${_kernel_dir}
+
+Expected:
+  boot/Image
+  boot/dtb/qcom/qcs8550-ayn-thor.dtb
+  usr/lib/modules/<kernel-release>/
+
+Import them from a mounted or extracted ROCKNIX image first:
+  ./scripts/import-rocknix-kernel.sh --from-dir <rocknix-root-or-mount>
+EOF
+    exit 1
+  fi
+
+  kernver="$(find "${modules_root}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -n1)"
+  [[ -n "${kernver}" ]] || {
+    echo "unable to determine kernel release from ${modules_root}" >&2
+    exit 1
+  }
+
+  install -Dm644 "${image}" "${pkgdir}/boot/Image"
+  install -Dm644 "${image}" "${pkgdir}/usr/lib/modules/${kernver}/Image"
+  install -Dm644 "${dtb}" "${pkgdir}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
+
+  cp -a "${modules_root}/${kernver}/." "${pkgdir}/usr/lib/modules/${kernver}/"
+  find "${pkgdir}/usr/lib/modules/${kernver}" -name build -type l -delete
+  find "${pkgdir}/usr/lib/modules/${kernver}" -name source -type l -delete
+
+  if [[ -f "${_kernel_dir}/boot/KERNEL" ]]; then
+    install -Dm644 "${_kernel_dir}/boot/KERNEL" "${pkgdir}/usr/share/thorch/rocknix/KERNEL"
+  fi
+  if [[ -f "${_kernel_dir}/PROVENANCE" ]]; then
+    install -Dm644 "${_kernel_dir}/PROVENANCE" "${pkgdir}/usr/share/licenses/${pkgname}/ROCKNIX-KERNEL-PROVENANCE"
+  fi
+
+  install -Dm644 /dev/stdin "${pkgdir}/etc/mkinitcpio.d/linux-thorch.preset" <<'EOF'
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="/boot/Image"
+PRESETS=('default' 'fallback')
+default_image="/boot/initramfs-linux-thorch.img"
+fallback_image="/boot/initramfs-linux-thorch-fallback.img"
+fallback_options="-S autodetect"
+EOF
+}

@@ -1,0 +1,32 @@
+# Local build products and synced upstream inputs.
+/build/
+/cache/
+/output/
+/local/
+/vendor/rocknix-kernel/
+/vendor/rocknix-runtime/
+/vendor/rocknix-sm8550/
+
+# Arch package build output.
+/packages/*/build/
+/packages/*/pkg/
+/packages/*/src/
+/packages/linux-thorch/linux-*.tar.*
+*.pkg.tar.*
+*.pkg.tar.*.sig
+
+# Raw images and compressed images.
+*.img
+*.img.gz
+*.img.xz
+*.img.zst
+
+# Local editor, cache, and log noise.
+.DS_Store
+*.bak
+*.log
+*.old
+*.pyc
+*.swp
+*.tmp
+__pycache__/

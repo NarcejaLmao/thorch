@@ -1,0 +1,12 @@
+[Unit]
+Description=Write Thorch boot diagnostics to /boot
+After=systemd-udevd.service NetworkManager.service display-manager.service
+Wants=NetworkManager.service
+ConditionPathIsMountPoint=/boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/thorch-debug-report
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Configure Thorch USB debug network
+After=thorch-usb-gadget.service
+Wants=thorch-usb-gadget.service
+Before=sshd.service
+
+[Service]
+Type=forking
+PIDFile=/run/thorch-usb-dnsmasq.pid
+ExecStart=/usr/bin/thorch-usb-network
+ExecStop=/bin/sh -c 'test ! -s /run/thorch-usb-dnsmasq.pid || kill "$(cat /run/thorch-usb-dnsmasq.pid)"'
+ExecStopPost=/usr/bin/rm -f /run/thorch-usb-dnsmasq.pid
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

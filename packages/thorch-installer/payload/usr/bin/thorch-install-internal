@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: thorch-install-internal [--boot-device /dev/... --root-device /dev/...]
+       thorch-install-internal --create-from-userdata
+
+Installs the currently running Thorch SD system to internal Thor Linux storage.
+This formats the selected boot and root partitions, but never flashes ABL.
+
+Without device arguments, Thorch auto-detects an existing internal Linux install
+target using ROCKNIX/Thorch labels. It will not create partitions, shrink
+Android userdata, or wipe Android userdata unless --create-from-userdata is
+passed explicitly.
+
+Required safety confirmation: type INSTALL THORCH when prompted.
+EOF
+}
+
+require_value() {
+  local opt="$1" value="${2:-}"
+  [[ -n "${value}" ]] || {
+    usage
+    echo "${opt} requires a value" >&2
+    exit 2
+  }
+}
+
+boot_device=""
+root_device=""
+target=/mnt/thorch-internal
+create_from_userdata=0
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --boot-device)
+      require_value "$1" "${2:-}"
+      boot_device="$2"
+      shift 2
+      ;;
+    --root-device)
+      require_value "$1" "${2:-}"
+      root_device="$2"
+      shift 2
+      ;;
+    --target)
+      require_value "$1" "${2:-}"
+      target="$2"
+      shift 2
+      ;;
+    --create-from-userdata)
+      create_from_userdata=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
+}
+
+require_root() {
+  [[ "${EUID}" -eq 0 ]] || fail "run as root"
+}
+
+base_block() {
+  local dev="$1" pk base
+  pk="$(lsblk -no PKNAME "${dev}" 2>/dev/null | head -n1 || true)"
+  if [[ -n "${pk}" ]]; then
+    printf '%s\n' "${pk}"
+    return
+  fi
+  base="$(basename "${dev}")"
+  base="${base%%p[0-9]*}"
+  base="${base%%[0-9]*}"
+  printf '%s\n' "${base}"
+}
+
+is_removable_root() {
+  local src base removable root_label boot_src boot_label
+  src="$(findmnt -n -o SOURCE /)"
+  [[ "${src}" == /dev/* ]] || return 1
+  base="$(base_block "${src}")"
+  removable="/sys/class/block/${base}/removable"
+  [[ -f "${removable}" ]] && [[ "$(cat "${removable}")" == "1" ]] && return 0
+
+  # Thor reports the external SD slot as non-removable. Accept the Thorch SD
+  # image shape as the second safety signal: root on mmcblk*, root label
+  # THORCH_ROOT, and /boot label ROCKNIX on the same mmc block device.
+  [[ "${base}" == mmcblk* ]] || return 1
+  root_label="$(blkid -s LABEL -o value "${src}" 2>/dev/null || true)"
+  [[ "${root_label}" == "THORCH_ROOT" ]] || return 1
+  boot_src="$(findmnt -n -o SOURCE /boot 2>/dev/null || true)"
+  [[ "${boot_src}" == /dev/* ]] || return 1
+  [[ "$(base_block "${boot_src}")" == "${base}" ]] || return 1
+  boot_label="$(blkid -s LABEL -o value "${boot_src}" 2>/dev/null || true)"
+  [[ "${boot_label}" == "ROCKNIX" ]]
+}
+
+reject_android_partition() {
+  local dev="$1" text
+  text="$(lsblk -no NAME,LABEL,PARTLABEL "${dev}" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  if grep -Eq '(^|[[:space:]])(abl|boot_[ab]|vendor|system|super|metadata|userdata|dtbo|vbmeta|persist|modem|bluetooth|dsp|xbl|tz|hyp|keymaster|recovery)([[:space:]]|$)' <<<"${text}"; then
+    fail "${dev} looks like an Android partition: ${text}"
+  fi
+}
+
+current_root_base() {
+  local src
+  src="$(findmnt -n -o SOURCE /)"
+  [[ "${src}" == /dev/* ]] || return 1
+  base_block "${src}"
+}
+
+partition_label() {
+  blkid -s LABEL -o value "$1" 2>/dev/null || true
+}
+
+partition_partlabel() {
+  lsblk -no PARTLABEL "$1" 2>/dev/null | head -n1 || true
+}
+
+partition_node() {
+  local disk="$1" num="$2"
+  if [[ "${disk}" =~ (nvme|mmcblk|loop)[0-9] ]]; then
+    printf '%sp%s\n' "${disk}" "${num}"
+  else
+    printf '%s%s\n' "${disk}" "${num}"
+  fi
+}
+
+partprobe_wait() {
+  local disk="$1"
+  partprobe "${disk}" 2>/dev/null || true
+  udevadm settle 2>/dev/null || true
+}
+
+internal_userdata_disk() {
+  local current_base line disk count=0 found=""
+  current_base="$(current_root_base)"
+
+  while IFS= read -r line; do
+    disk="/dev/$(base_block "${line}")"
+    [[ "$(basename "${disk}")" != "${current_base}" ]] || continue
+    found="${disk}"
+    count=$((count + 1))
+  done < <(lsblk -nrpo NAME,TYPE,PARTLABEL | awk '$2 == "part" && $3 == "userdata" {print $1}')
+
+  [[ "${count}" -eq 1 ]] || return 1
+  printf '%s\n' "${found}"
+}
+
+create_target_by_shrinking_userdata() {
+  local disk="$1" confirm ud_line ud_num ud_start_b ud_end_b ud_start ud_end
+  local ud_start_mib ud_end_mib orig_gib min_gib reserve_gib max_gib keep_gib
+  local new_ud_end_mib boot_num root_num boot_start_mib boot_end_mib ud_node before_nums
+
+  cat <<EOF
+No existing internal Thorch/ROCKNIX Linux install target was found.
+
+Thorch can create one by shrinking Android userdata on:
+  ${disk}
+
+This matches the ROCKNIX install-to-internal flow:
+  - Android userdata is deleted and recreated smaller.
+  - Android userdata contents are wiped.
+  - A 2 GiB ROCKNIX boot partition is created.
+  - The remaining space becomes Thorch's internal Linux root partition.
+  - ABL and Android bootloader partitions are not flashed.
+EOF
+
+  printf 'Type SHRINK USERDATA to continue, or anything else to abort: '
+  read -r confirm
+  [[ "${confirm}" == "SHRINK USERDATA" ]] || exit 0
+
+  mapfile -t ud_matches < <(parted -m -s "${disk}" unit B print | grep ':userdata:')
+  [[ "${#ud_matches[@]}" -eq 1 ]] || fail "could not uniquely find Android userdata on ${disk}"
+  ud_line="${ud_matches[0]}"
+  IFS=':' read -r ud_num ud_start_b ud_end_b _ <<< "${ud_line}"
+  ud_start="${ud_start_b%B}"
+  ud_end="${ud_end_b%B}"
+  ud_node="$(partition_node "${disk}" "${ud_num}")"
+  require_unmounted "${ud_node}"
+
+  ud_start_mib=$(( (ud_start + 1048575) / 1048576 ))
+  ud_end_mib=$(( ud_end / 1048576 ))
+  orig_gib=$(( (ud_end_mib - ud_start_mib) / 1024 ))
+  min_gib=1
+  reserve_gib=8
+  max_gib=$(( orig_gib - reserve_gib ))
+  (( max_gib >= min_gib )) || fail "not enough userdata space to reserve ${reserve_gib} GiB for Thorch"
+
+  echo "Current Android userdata size: ${orig_gib} GiB"
+  echo "Choose how much space Android userdata should keep after it is wiped."
+  echo "Allowed range: ${min_gib} GiB to ${max_gib} GiB"
+  while :; do
+    printf 'Android userdata size in GiB: '
+    read -r keep_gib
+    if [[ "${keep_gib}" =~ ^[0-9]+$ ]] && (( keep_gib >= min_gib && keep_gib <= max_gib )); then
+      break
+    fi
+    echo "Please enter a whole number between ${min_gib} and ${max_gib}."
+  done
+
+  new_ud_end_mib=$(( ud_start_mib + keep_gib * 1024 ))
+  boot_start_mib="${new_ud_end_mib}"
+  boot_end_mib=$(( boot_start_mib + 2048 ))
+
+  cat <<EOF
+
+Thorch will repartition ${disk}:
+  Android userdata: partition ${ud_num}, ${keep_gib} GiB, wiped
+  ROCKNIX boot:     new 2 GiB partition after userdata
+  Thorch root:       new partition using remaining space
+
+Type CREATE THORCH to continue: 
+EOF
+  read -r confirm
+  [[ "${confirm}" == "CREATE THORCH" ]] || fail "confirmation did not match; aborting"
+
+  partition_numbers() {
+    parted -m -s "$1" unit B print |
+      awk -F: '$1 ~ /^[0-9]+$/ {print $1}' |
+      sort -n
+  }
+
+  new_partition_number_since() {
+    local disk="$1" before="$2" num found="" count=0
+    while IFS= read -r num; do
+      [[ -n "${num}" ]] || continue
+      if ! grep -qxF "${num}" <<<"${before}"; then
+        found="${num}"
+        count=$((count + 1))
+      fi
+    done < <(partition_numbers "${disk}")
+
+    [[ "${count}" -eq 1 ]] || fail "could not identify the new partition number on ${disk}"
+    printf '%s\n' "${found}"
+  }
+
+  parted -s "${disk}" rm "${ud_num}"
+  before_nums="$(partition_numbers "${disk}")"
+  parted -a optimal -s "${disk}" mkpart primary ext4 "${ud_start_mib}MiB" "${new_ud_end_mib}MiB"
+  ud_num="$(new_partition_number_since "${disk}" "${before_nums}")"
+  parted -s "${disk}" name "${ud_num}" userdata
+  partprobe_wait "${disk}"
+  ud_node="$(partition_node "${disk}" "${ud_num}")"
+  [[ -b "${ud_node}" ]] || fail "recreated userdata partition did not appear: ${ud_node}"
+  dd if=/dev/zero of="${ud_node}" bs=1M count=8 status=none
+
+  before_nums="$(partition_numbers "${disk}")"
+  parted -a optimal -s "${disk}" mkpart primary fat32 "${boot_start_mib}MiB" "${boot_end_mib}MiB"
+  boot_num="$(new_partition_number_since "${disk}" "${before_nums}")"
+  parted -s "${disk}" name "${boot_num}" ROCKNIX
+  parted -s "${disk}" set "${boot_num}" msftdata on || true
+  parted -s "${disk}" set "${boot_num}" boot on || true
+
+  before_nums="$(partition_numbers "${disk}")"
+  parted -a optimal -s "${disk}" mkpart primary ext4 "${boot_end_mib}MiB" 100%
+  root_num="$(new_partition_number_since "${disk}" "${before_nums}")"
+  parted -s "${disk}" name "${root_num}" STORAGE
+  partprobe_wait "${disk}"
+
+  boot_device="$(partition_node "${disk}" "${boot_num}")"
+  root_device="$(partition_node "${disk}" "${root_num}")"
+  [[ -b "${boot_device}" && -b "${root_device}" ]] || fail "new Thorch partitions did not appear"
+}
+
+find_thorch_internal_target() {
+  local current_base name type fstype label partlabel base
+  local boot_candidates=()
+  local root_candidates=()
+  local boot root pair_count=0
+
+  current_base="$(current_root_base)"
+
+  while read -r name type fstype label partlabel; do
+    [[ "${type}" == "part" ]] || continue
+    base="$(base_block "${name}")"
+    [[ "${base}" != "${current_base}" ]] || continue
+
+    if [[ "${fstype}" == "vfat" && ( "${label}" == "ROCKNIX" || "${partlabel}" == "ROCKNIX" ) ]]; then
+      reject_android_partition "${name}"
+      require_unmounted "${name}"
+      boot_candidates+=("${name}")
+    fi
+
+    if [[ "${fstype}" == "ext4" && ( "${label}" == "THORCH_ROOT" || "${label}" == "armbi_root" || "${partlabel}" == "STORAGE" ) ]]; then
+      reject_android_partition "${name}"
+      require_unmounted "${name}"
+      root_candidates+=("${name}")
+    fi
+  done < <(lsblk -nrpo NAME,TYPE,FSTYPE,LABEL,PARTLABEL)
+
+  for boot in "${boot_candidates[@]}"; do
+    for root in "${root_candidates[@]}"; do
+      [[ "$(base_block "${boot}")" == "$(base_block "${root}")" ]] || continue
+      boot_device="${boot}"
+      root_device="${root}"
+      pair_count=$((pair_count + 1))
+    done
+  done
+
+  if [[ "${pair_count}" -eq 1 ]]; then
+    return 0
+  fi
+
+  if [[ "${pair_count}" -gt 1 ]]; then
+    fail "found multiple possible internal Thorch targets; rerun with --boot-device and --root-device"
+  fi
+
+  local disk
+  if [[ "${create_from_userdata}" -eq 1 ]] && disk="$(internal_userdata_disk)"; then
+    create_target_by_shrinking_userdata "${disk}"
+    return 0
+  fi
+
+  if [[ "${create_from_userdata}" -eq 1 ]]; then
+    fail "no existing Thorch target and no unique Android userdata partition found"
+  fi
+
+  fail "no existing Thorch target found; pass --create-from-userdata to shrink/wipe Android userdata and create one"
+}
+
+require_unmounted() {
+  local dev="$1"
+  if findmnt -rn -S "${dev}" >/dev/null 2>&1; then
+    fail "${dev} is currently mounted"
+  fi
+}
+
+mounted_targets=()
+cleanup_target_mounts() {
+  local mp
+  for ((i=${#mounted_targets[@]}-1; i>=0; i--)); do
+    mp="${mounted_targets[$i]}"
+    if findmnt -rn --target "${mp}" >/dev/null 2>&1; then
+      umount "${mp}" 2>/dev/null || true
+    fi
+  done
+}
+
+mount_target() {
+  local dev="$1" mp="$2"
+  mount "${dev}" "${mp}"
+  mounted_targets+=("${mp}")
+}
+
+require_target_clear() {
+  local mp
+  for mp in "${target}/boot" "${target}"; do
+    if findmnt -rn --target "${mp}" >/dev/null 2>&1; then
+      fail "target mountpoint is already in use: ${mp}"
+    fi
+  done
+}
+
+normalize_target() {
+  target="$(readlink -m "${target}")"
+  [[ "${target}" != "/" ]] || fail "--target must not be /"
+  case "${target}" in
+    /mnt/thorch-internal|/mnt/thorch-internal/*|/run/thorch-installer/*)
+      ;;
+    *)
+      fail "--target must be under /mnt/thorch-internal or /run/thorch-installer"
+      ;;
+  esac
+}
+
+prepare_target_dir() {
+  [[ ! -L "${target}" ]] || fail "target must not be a symlink: ${target}"
+  if [[ -e "${target}" && ! -d "${target}" ]]; then
+    fail "target exists and is not a directory: ${target}"
+  fi
+  if [[ -d "${target}" ]]; then
+    rmdir "${target}" 2>/dev/null || fail "target directory exists and is not empty: ${target}"
+  fi
+  mkdir -p "${target}"
+}
+
+backup_existing_boot() {
+  local dev="$1" stamp tmp backup
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="/var/lib/thorch-installer/boot-backups/${stamp}"
+  tmp="$(mktemp -d)"
+  mkdir -p "${backup}"
+  if mount -o ro "${dev}" "${tmp}" 2>/dev/null; then
+    rsync -a "${tmp}/" "${backup}/"
+    umount "${tmp}"
+    echo "existing boot files backed up to ${backup}"
+  else
+    echo "no readable existing boot filesystem found on ${dev}; skipping boot backup"
+  fi
+  rmdir "${tmp}"
+}
+
+require_root
+for cmd in arch-chroot blkid blockdev dd findmnt lsblk mkfs.ext4 mkfs.vfat mount parted partprobe thorch-check-boot thorch-rebuild-abl-kernel readlink rsync sed udevadm umount; do
+  need "${cmd}"
+done
+normalize_target
+is_removable_root || fail "refusing to install: current / does not appear to be booted from removable SD"
+
+if [[ -z "${boot_device}" && -z "${root_device}" ]]; then
+  find_thorch_internal_target
+elif [[ -z "${boot_device}" || -z "${root_device}" ]]; then
+  usage
+  fail "pass both --boot-device and --root-device, or pass neither for auto-detect"
+fi
+
+[[ -b "${boot_device}" ]] || fail "boot device is not a block device: ${boot_device}"
+[[ -b "${root_device}" ]] || fail "root device is not a block device: ${root_device}"
+[[ "${boot_device}" != "${root_device}" ]] || fail "boot and root devices must differ"
+
+reject_android_partition "${boot_device}"
+reject_android_partition "${root_device}"
+require_unmounted "${boot_device}"
+require_unmounted "${root_device}"
+
+cat <<EOF
+Thorch will install the running system to internal storage:
+  boot partition: ${boot_device}  -> FAT32 label ROCKNIX
+  root partition: ${root_device}  -> ext4 label THORCH_ROOT
+
+This formats both selected partitions. It will not flash ABL.
+EOF
+
+printf 'Type INSTALL THORCH to continue: '
+read -r confirmation
+[[ "${confirmation}" == "INSTALL THORCH" ]] || fail "confirmation did not match; aborting"
+
+backup_existing_boot "${boot_device}"
+
+require_target_clear
+prepare_target_dir
+
+mkfs.vfat -F 32 -n ROCKNIX "${boot_device}"
+mkfs.ext4 -F -L THORCH_ROOT "${root_device}"
+
+trap cleanup_target_mounts EXIT
+
+mount_target "${root_device}" "${target}"
+mkdir -p "${target}/boot"
+mount_target "${boot_device}" "${target}/boot"
+
+rsync -aAXH --numeric-ids \
+  --exclude=/dev/* \
+  --exclude=/proc/* \
+  --exclude=/sys/* \
+  --exclude=/run/* \
+  --exclude=/tmp/* \
+  --exclude=/mnt/* \
+  --exclude=/media/* \
+  --exclude=/lost+found \
+  --exclude=/boot/* \
+  / "${target}/"
+
+mkdir -p "${target}"/{dev,proc,sys,run,tmp,mnt,media}
+chmod 1777 "${target}/tmp"
+rsync -a /boot/ "${target}/boot/"
+
+root_uuid="$(blkid -s UUID -o value "${root_device}")"
+boot_uuid="$(blkid -s UUID -o value "${boot_device}")"
+
+cat > "${target}/etc/fstab" <<EOF
+UUID=${root_uuid} / ext4 rw,relatime 0 1
+UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
+EOF
+
+sed -i "s/root=UUID=[^[:space:]\"]*/root=UUID=${root_uuid}/" "${target}/boot/LinuxLoader.cfg"
+
+arch-chroot "${target}" mkinitcpio -P
+thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype ext4
+thorch-check-boot --boot-dir "${target}/boot"
+
+sync
+cleanup_target_mounts
+trap - EXIT
+
+echo "Thorch internal install complete. Reboot and select the Thor Linux boot path."

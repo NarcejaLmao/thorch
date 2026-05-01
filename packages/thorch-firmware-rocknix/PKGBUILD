@@ -1,0 +1,74 @@
+# Maintainer: Thorch contributors
+
+pkgname=thorch-firmware-rocknix
+pkgver=1
+pkgrel=3
+pkgdesc='Public ROCKNIX SM8550 firmware and runtime artifacts packaged for Thorch'
+arch=(aarch64)
+url='https://github.com/ROCKNIX/distribution'
+license=(custom)
+depends=(expat gcc-libs glibc libdrm libx11 libxcb libxshmfence vulkan-icd-loader wayland zlib zstd)
+provides=(vulkan-driver)
+options=(!strip)
+
+_firmware_dir="${THORCH_FIRMWARE_DIR:-${startdir}/../../vendor/rocknix-sm8550/firmware}"
+_rocknix_kernel_dir="${THORCH_ROCKNIX_KERNEL_DIR:-${startdir}/../../vendor/rocknix-kernel}"
+
+package() {
+  if [[ ! -d "${_firmware_dir}/qcom/sm8550/ayn/thor" ]]; then
+    cat >&2 <<EOF
+Missing synced ROCKNIX firmware at:
+  ${_firmware_dir}
+
+Run from the repository root:
+  ./scripts/sync-rocknix-sources.sh --ref <pinned ROCKNIX commit> --with-firmware
+EOF
+    exit 1
+  fi
+
+  install -d "${pkgdir}/usr/lib/firmware"
+  cp -a "${_firmware_dir}/." "${pkgdir}/usr/lib/firmware/"
+  rm -f "${pkgdir}/usr/lib/firmware/qcom/vpu/vpu30_p4.mbn"
+
+  if [[ ! -f "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" ]]; then
+    cat >&2 <<EOF
+Missing ROCKNIX runtime artifacts at:
+  ${_rocknix_kernel_dir}
+
+Expected files imported from ROCKNIX /SYSTEM:
+  usr/lib/libvulkan_freedreno.so
+  usr/lib/libdisplay-info.so.0.2.0
+  usr/share/fex-emu/libvulkan_freedreno.so
+  usr/share/vulkan/icd.d/freedreno_icd.json
+
+Run from the repository root:
+  ./scripts/sync-rocknix-kernel.sh
+EOF
+    exit 1
+  fi
+
+  install -Dm755 "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" \
+    "${pkgdir}/usr/lib/libvulkan_freedreno.so"
+  install -Dm755 "${_rocknix_kernel_dir}/usr/lib/libdisplay-info.so.0.2.0" \
+    "${pkgdir}/usr/lib/libdisplay-info.so.0.2.0"
+  ln -s libdisplay-info.so.0.2.0 "${pkgdir}/usr/lib/libdisplay-info.so.2"
+  install -Dm755 "${_rocknix_kernel_dir}/usr/share/fex-emu/libvulkan_freedreno.so" \
+    "${pkgdir}/usr/share/fex-emu/libvulkan_freedreno.so"
+  install -Dm644 "${_rocknix_kernel_dir}/usr/share/vulkan/icd.d/freedreno_icd.json" \
+    "${pkgdir}/usr/share/vulkan/icd.d/freedreno_icd.json"
+
+  install -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  if [[ -f "${_firmware_dir}/THORCH_FIRMWARE_PROVENANCE" ]]; then
+    install -Dm644 "${_firmware_dir}/THORCH_FIRMWARE_PROVENANCE" \
+      "${pkgdir}/usr/share/licenses/${pkgname}/PROVENANCE"
+  else
+    cat > "${pkgdir}/usr/share/licenses/${pkgname}/PROVENANCE" <<'EOF'
+Firmware files are sourced from the public ROCKNIX distribution repository:
+https://github.com/ROCKNIX/distribution
+EOF
+  fi
+  if [[ -f "${_rocknix_kernel_dir}/PROVENANCE" ]]; then
+    install -Dm644 "${_rocknix_kernel_dir}/PROVENANCE" \
+      "${pkgdir}/usr/share/licenses/${pkgname}/ROCKNIX-RUNTIME-PROVENANCE"
+  fi
+}

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat <<'EOF'
+Thorch gaming setup installs launchers and required compatibility tools.
+
+Steam, FEX rootfs, and third-party payloads are fetched during setup. Thorch
+ships the FEX runtime imported from the matching ROCKNIX image but does not
+redistribute the Steam client.
+EOF
+
+install_root_packages() {
+  local packages=()
+  local pkg
+
+  for pkg in gamescope vulkan-tools; do
+    if pacman -Si "${pkg}" >/dev/null 2>&1 && ! pacman -Q "${pkg}" >/dev/null 2>&1; then
+      packages+=("${pkg}")
+    fi
+  done
+
+  [[ "${#packages[@]}" -gt 0 ]] || return 0
+
+  echo "Installing optional system packages: ${packages[*]}"
+  if [[ "${EUID}" -eq 0 ]]; then
+    pacman -S --needed "${packages[@]}"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo pacman -S --needed "${packages[@]}"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec pacman -S --needed "${packages[@]}"
+  else
+    cat >&2 <<EOF
+Could not install optional system packages automatically.
+
+Run this later as root:
+  pacman -S --needed ${packages[*]}
+EOF
+  fi
+}
+
+install_root_packages
+
+if command -v thorch-install-fex >/dev/null 2>&1; then
+  thorch-install-fex
+else
+  echo "thorch-install-fex is missing." >&2
+  exit 1
+fi
+
+if command -v thorch-install-steam-arm64 >/dev/null 2>&1; then
+  thorch-install-steam-arm64 --yes
+else
+  echo "thorch-install-steam-arm64 is missing." >&2
+fi
+
+echo
+echo "Gaming setup finished. Steam ARM64 should now be available from the app menu."

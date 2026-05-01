@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+boot_dir=/boot
+require_value() {
+  local opt="$1" value="${2:-}"
+  [[ -n "${value}" ]] || {
+    echo "usage: thorch-check-boot [--boot-dir /boot]" >&2
+    echo "${opt} requires a value" >&2
+    exit 2
+  }
+}
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --boot-dir)
+      require_value "$1" "${2:-}"
+      boot_dir="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "usage: thorch-check-boot [--boot-dir /boot]" >&2
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+failures=0
+check_file() {
+  local label="$1" path="$2"
+  if [[ -f "${path}" ]]; then
+    printf 'ok: %s\n' "${label}"
+  else
+    printf 'FAIL: %s (%s)\n' "${label}" "${path}" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+check_file "raw Linux Image" "${boot_dir}/Image"
+check_file "Thorch initramfs" "${boot_dir}/initramfs-linux-thorch.img"
+check_file "LinuxLoader.cfg" "${boot_dir}/LinuxLoader.cfg"
+check_file "Android boot image KERNEL" "${boot_dir}/KERNEL"
+check_file "Thor DTB" "${boot_dir}/dtb/qcom/qcs8550-ayn-thor.dtb"
+
+if [[ -f "${boot_dir}/LinuxLoader.cfg" ]]; then
+  grep -q 'Target = "Linux"' "${boot_dir}/LinuxLoader.cfg" || failures=$((failures + 1))
+  grep -q 'root=UUID=' "${boot_dir}/LinuxLoader.cfg" || failures=$((failures + 1))
+fi
+
+if [[ -f "${boot_dir}/KERNEL" ]] && command -v file >/dev/null 2>&1; then
+  file -b "${boot_dir}/KERNEL" | grep -q '^Android bootimg' || failures=$((failures + 1))
+fi
+
+if [[ "${failures}" -ne 0 ]]; then
+  echo "Thorch boot validation failed: ${failures} issue(s)" >&2
+  exit 1
+fi
+
+echo "Thorch boot validation passed"

@@ -1,0 +1,44 @@
+# Maintainer: Thorch contributors
+
+pkgname=thorch-kde-defaults
+pkgver=1
+pkgrel=1
+pkgdesc='KDE Plasma Mobile/Desktop defaults for Thorch on AYN Thor'
+arch=(aarch64)
+url='https://github.com/ROCKNIX/distribution'
+license=(GPL-2.0-or-later)
+depends=(alsa-utils kscreen kwin libpulse perl pipewire plasma-desktop plasma-keyboard plasma-maliit-framework plasma-maliit-plugins plasma-nm plasma-pa plasma-workspace python qt6-tools qt6-virtualkeyboard rtkit sddm systemd util-linux wireplumber xorg-xrandr)
+optdepends=('ark: archive manager'
+            'dolphin: graphical file manager'
+            'firefox: web browser'
+            'gwenview: image viewer'
+            'kate: text editor'
+            'kcalc: calculator'
+            'konsole: terminal emulator'
+            'okular: document viewer'
+            'plasma-mobile: mobile shell session'
+            'plasma-settings: mobile shell settings'
+            'spectacle: screenshot tool')
+source=()
+sha256sums=()
+
+package() {
+  cd "${startdir}/payload"
+  cp -a . "${pkgdir}/"
+
+  chmod 755 "${pkgdir}/usr/bin/thorch-audio-init"
+  chmod 755 "${pkgdir}/usr/bin/thorch-display-setup"
+  chmod 755 "${pkgdir}/usr/bin/thorch-touchscreen-setup"
+  chmod 755 "${pkgdir}/usr/bin/thorch-kwin-touch-map"
+  chmod 755 "${pkgdir}/usr/bin/thorch-switch-session"
+  chmod 755 "${pkgdir}/usr/bin/thorch-f24-escape"
+  chmod 755 "${pkgdir}/etc/skel/.config/plasma-workspace/env/10-thorch-touch.sh"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-display-setup.desktop"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-desktop.desktop"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-mobile.desktop"
+  chmod 755 "${pkgdir}/usr/share/applications/thorch-display-setup.desktop"
+
+  install -d "${pkgdir}/etc/skel/.config/systemd/user/default.target.wants"
+  ln -sf /usr/lib/systemd/user/thorch-audio-init.service \
+    "${pkgdir}/etc/skel/.config/systemd/user/default.target.wants/thorch-audio-init.service"
+}

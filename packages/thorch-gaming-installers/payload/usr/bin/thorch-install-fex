@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v FEX >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+FEX is required but is not installed.
+
+Install the Thorch package first:
+  pacman -S thorch-fex-bin
+EOF
+  exit 1
+fi
+
+restart_binfmt() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    systemctl restart systemd-binfmt.service 2>/dev/null || true
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo systemctl restart systemd-binfmt.service 2>/dev/null || true
+  fi
+}
+
+install_steam_tool() {
+  local steam_root system_tool user_tool
+
+  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+  system_tool="${THORCH_FEX_STEAM_TOOL:-/usr/share/steam/fex}"
+  [[ -f "${system_tool}/toolmanifest.vdf" && -f "${system_tool}/emulator.json" ]] || return 0
+
+  mkdir -p "${HOME}/.steam"
+  ln -sfnT "${steam_root}" "${HOME}/.steam/root"
+  ln -sfnT "${steam_root}" "${HOME}/.steam/steam"
+  mkdir -p "${steam_root}/compatibilitytools.d"
+  user_tool="${steam_root}/compatibilitytools.d/Thorch FEX"
+  ln -sfnT "${system_tool}" "${user_tool}"
+}
+
+steam_library_dirs() {
+  local steam_root vdf
+
+  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+  printf '%s\n' "${steam_root}"
+  vdf="${steam_root}/steamapps/libraryfolders.vdf"
+  [[ -f "${vdf}" ]] || return 0
+
+  python - "${vdf}" <<'PY'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+for match in re.finditer(r'"path"\s+"((?:\\.|[^"\\])*)"', text):
+    raw = match.group(1)
+    print(bytes(raw, "utf-8").decode("unicode_escape"))
+PY
+}
+
+resolve_fex_rootfs() {
+  local rootfs_dir
+
+  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+    [[ -n "${rootfs_dir}" ]] || continue
+    if [[ -d "${rootfs_dir}/ArchLinux" ]]; then
+      printf '%s\t%s\n' "${rootfs_dir}/ArchLinux" "ArchLinux"
+      return 0
+    fi
+    if [[ -f "${rootfs_dir}/ArchLinux.sqsh" ]]; then
+      printf '%s\t%s\n' "${rootfs_dir}/ArchLinux.sqsh" "ArchLinux.sqsh"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+seed_fex_steam_app_configs() {
+  local appid config_base library manifest rootfs_name rootfs_path steam_root steamapps
+
+  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+  IFS=$'\t' read -r rootfs_path rootfs_name < <(resolve_fex_rootfs) || return 0
+
+  while IFS= read -r library; do
+    [[ -n "${library}" ]] || continue
+    steamapps="${library}/steamapps"
+    [[ -d "${steamapps}" ]] || continue
+
+    shopt -s nullglob
+    for manifest in "${steamapps}"/appmanifest_*.acf; do
+      appid="${manifest##*appmanifest_}"
+      appid="${appid%.acf}"
+      [[ "${appid}" =~ ^[0-9]+$ ]] || continue
+
+      config_base="${steam_root}/steamapps/compatdata/${appid}/fex-emu"
+      mkdir -p "${config_base}/RootFS" "${config_base}/Config" "${config_base}/Server"
+      rm -rf "${config_base}/RootFS/ArchLinux" "${config_base}/RootFS/ArchLinux.sqsh"
+      ln -sfnT "${rootfs_path}" "${config_base}/RootFS/${rootfs_name}"
+
+      python - "${config_base}" "${rootfs_name}" <<'PY'
+import json
+import pathlib
+import sys
+
+base = pathlib.Path(sys.argv[1])
+rootfs_name = sys.argv[2]
+template = pathlib.Path("/usr/config/fex-emu/Config.json")
+if not template.exists():
+    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
+host = pathlib.Path("/usr/share/steam/fex/usr/lib/aarch64-linux-gnu/fex-emu/HostThunks")
+guest = pathlib.Path("/usr/share/steam/fex/usr/share/fex-emu/GuestThunks")
+if not host.exists():
+    host = pathlib.Path("/usr/lib/fex-emu/HostThunks")
+if not guest.exists():
+    guest = pathlib.Path("/usr/share/fex-emu/GuestThunks")
+
+for path in (base / "Config.json", base / "Config" / "Config.json"):
+    try:
+        data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+    except json.JSONDecodeError:
+        data = {}
+
+    config = data.setdefault("Config", {})
+    config.update({
+        "RootFS": rootfs_name,
+        "ServerSocketPath": str(base / "Server"),
+        "ThunkHostLibs": str(host),
+        "ThunkGuestLibs": str(guest),
+        "TSOEnabled": "1",
+        "Multiblock": "1",
+        "X87ReducedPrecision": "1",
+        "SilentLog": "1",
+        "OutputLog": "server",
+    })
+    data["ThunksDB"] = {
+        "GL": 1,
+        "Vulkan": 1,
+        "drm": 1,
+        "asound": 1,
+        "WaylandClient": 1,
+        "fex_thunk_test": 0,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+    done
+    shopt -u nullglob
+  done < <(steam_library_dirs | awk '!seen[$0]++')
+}
+
+write_fex_config_defaults() {
+  local config_file="$1" rootfs_name="$2" server_dir="$3"
+
+  python - "${config_file}" "${rootfs_name}" "${server_dir}" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rootfs_name = sys.argv[2]
+server_dir = sys.argv[3]
+template = pathlib.Path("/usr/config/fex-emu/Config.json")
+if not template.exists():
+    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
+try:
+    data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+except json.JSONDecodeError:
+    data = {}
+config = data.setdefault("Config", {})
+config.update({
+    "RootFS": rootfs_name,
+    "ServerSocketPath": server_dir,
+    "ThunkHostLibs": "/usr/lib/fex-emu/HostThunks",
+    "ThunkGuestLibs": "/usr/share/fex-emu/GuestThunks",
+    "TSOEnabled": "1",
+    "Multiblock": "1",
+    "X87ReducedPrecision": "1",
+    "SilentLog": "1",
+    "OutputLog": "server",
+})
+data["ThunksDB"] = {
+    "GL": 1,
+    "Vulkan": 1,
+    "drm": 1,
+    "asound": 1,
+    "WaylandClient": 1,
+    "fex_thunk_test": 0,
+}
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+unpack_fex_rootfs_for_freedreno() {
+  local rootfs_dir="$1" rootfs_file="$2" rootfs_tree="$3" tmp_tree
+
+  [[ -f "${rootfs_file}" ]] || return 0
+  [[ ! -d "${rootfs_tree}/usr/lib" ]] || return 0
+  command -v unsquashfs >/dev/null 2>&1 || {
+    echo "unsquashfs is required to unpack the FEX Arch rootfs." >&2
+    exit 1
+  }
+
+  # The Steam pressure-vessel path expects a normal unpacked x86_64 guest rootfs.
+  # Keep it unpacked so we can repair accidental host-library contamination.
+  tmp_tree="$(mktemp -d "${rootfs_dir}/ArchLinux.tmp.XXXXXX")"
+  if unsquashfs -no-progress -f -d "${tmp_tree}" "${rootfs_file}" >/dev/null; then
+    rm -rf "${rootfs_tree}"
+    mv "${tmp_tree}" "${rootfs_tree}"
+  else
+    rm -rf "${tmp_tree}"
+    echo "Failed to unpack ${rootfs_file}" >&2
+    exit 1
+  fi
+}
+
+restore_guest_freedreno_from_rootfs() {
+  local rootfs_dir="$1" rootfs_file="$2" rootfs_tree="$3" guest_lib tmp_tree
+
+  guest_lib="${rootfs_tree}/usr/lib/libvulkan_freedreno.so"
+  [[ -d "${rootfs_tree}/usr/lib" && -f "${rootfs_file}" ]] || return 0
+  if [[ -f "${guest_lib}" ]] && file "${guest_lib}" | grep -q 'x86-64'; then
+    return 0
+  fi
+
+  command -v unsquashfs >/dev/null 2>&1 || {
+    echo "unsquashfs is required to restore the FEX guest Freedreno library." >&2
+    exit 1
+  }
+
+  echo "Restoring x86_64 guest Freedreno library from ${rootfs_file}."
+  tmp_tree="$(mktemp -d "${rootfs_dir}/freedreno-guest.XXXXXX")"
+  if unsquashfs -no-progress -f -d "${tmp_tree}" "${rootfs_file}" usr/lib/libvulkan_freedreno.so >/dev/null &&
+      [[ -f "${tmp_tree}/usr/lib/libvulkan_freedreno.so" ]]; then
+    install -m 0755 "${tmp_tree}/usr/lib/libvulkan_freedreno.so" "${guest_lib}"
+    rm -rf "${tmp_tree}"
+  else
+    rm -rf "${tmp_tree}"
+    echo "Failed to restore x86_64 guest Freedreno from ${rootfs_file}" >&2
+    exit 1
+  fi
+}
+
+install_rocknix_guest_freedreno() {
+  local rootfs_dir="$1" rootfs_file="$2" rootfs_tree="$3" guest_lib source_lib
+
+  guest_lib="${rootfs_tree}/usr/lib/libvulkan_freedreno.so"
+  source_lib="/usr/share/fex-emu/libvulkan_freedreno.so"
+  [[ -d "${rootfs_tree}/usr/lib" ]] || return 0
+
+  if [[ -f "${source_lib}" ]] && file "${source_lib}" | grep -q 'x86-64'; then
+    install -m 0755 "${source_lib}" "${guest_lib}"
+    return 0
+  fi
+
+  restore_guest_freedreno_from_rootfs "${rootfs_dir}" "${rootfs_file}" "${rootfs_tree}"
+}
+
+restart_binfmt
+
+config_src=/usr/config/fex-emu
+if [[ ! -d "${config_src}" ]]; then
+  config_src=/usr/share/thorch/fex-emu
+fi
+config_dst="${HOME}/.config/fex-emu"
+if [[ -d "${config_src}" ]]; then
+  mkdir -p "${config_dst}"
+  cp -a "${config_src}/." "${config_dst}/"
+fi
+
+server_dir="${HOME}/.local/share/fex-emu/Server"
+mkdir -p "${server_dir}"
+write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux.sqsh" "${server_dir}"
+
+if command -v FEXRootFSFetcher >/dev/null 2>&1; then
+  rootfs_dir="${FEX_ROOTFS_DIR:-${HOME}/.local/share/fex-emu/RootFS}"
+  rootfs_file="${rootfs_dir}/ArchLinux.sqsh"
+  rootfs_tree="${rootfs_dir}/ArchLinux"
+  mkdir -p "${rootfs_dir}"
+
+  if [[ -f "${rootfs_file}" || -d "${rootfs_tree}" ]]; then
+    echo "FEX Arch rootfs already exists; leaving it in place."
+  else
+    FEXRootFSFetcher -y -x --distro-name arch --distro-version rolling
+  fi
+  for candidate in "${rootfs_dir}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+    [[ -n "${candidate}" ]] || continue
+    if [[ -f "${candidate}/ArchLinux.sqsh" || -d "${candidate}/ArchLinux" ]]; then
+      rootfs_dir="${candidate}"
+      rootfs_file="${rootfs_dir}/ArchLinux.sqsh"
+      rootfs_tree="${rootfs_dir}/ArchLinux"
+      break
+    fi
+  done
+  unpack_fex_rootfs_for_freedreno "${rootfs_dir}" "${rootfs_file}" "${rootfs_tree}"
+  install_rocknix_guest_freedreno "${rootfs_dir}" "${rootfs_file}" "${rootfs_tree}"
+else
+  echo "FEXRootFSFetcher is missing from the installed FEX package." >&2
+  exit 1
+fi
+
+if [[ -f "${config_dst}/Config.json" && -d "${rootfs_tree}" ]]; then
+  write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux" "${server_dir}"
+fi
+
+if command -v FEXServer >/dev/null 2>&1; then
+  FEXServer --persistent=3600 >/dev/null 2>&1 || true
+fi
+
+install_steam_tool
+seed_fex_steam_app_configs
+
+if ! FEX /bin/uname -m >/dev/null 2>&1; then
+  echo "FEX RootFS is installed, but FEX could not start an x86_64 process." >&2
+  echo "Check that squashfuse is installed and the user session can mount FUSE filesystems." >&2
+  exit 1
+fi
+
+echo "FEX is installed, Steam can see the Thorch FEX tool, and a user RootFS is available."

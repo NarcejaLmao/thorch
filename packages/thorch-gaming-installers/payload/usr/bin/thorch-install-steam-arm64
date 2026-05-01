@@ -1,0 +1,565 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+system=0
+assume_yes=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --system)
+      system=1
+      ;;
+    -y|--yes)
+      assume_yes=1
+      ;;
+    *)
+      echo "usage: thorch-install-steam-arm64 [--system] [--yes]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+cat <<'EOF'
+This installer does not ship Steam. It installs a launcher that downloads
+Valve's Linux ARM64 public beta client into the launcher's user's home directory
+the first time it runs.
+
+You are responsible for complying with Valve's Steam license terms.
+EOF
+
+if [[ "${assume_yes}" -ne 1 ]]; then
+  printf 'Type STEAM to install the launcher: '
+  read -r answer
+  [[ "${answer}" == "STEAM" ]] || { echo "aborted"; exit 1; }
+fi
+
+if [[ "${system}" -eq 1 ]]; then
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Run --system as root, or omit --system for a user-local launcher." >&2
+    exit 1
+  fi
+  pacman -S --needed curl file gamescope jq libxinerama lsof openal tar unzip thorch-firmware-rocknix wget
+  bin_dir=/usr/local/bin
+  app_dir=/usr/share/applications
+else
+  for cmd in curl file wget unzip strings; do
+    command -v "${cmd}" >/dev/null 2>&1 || {
+      echo "Missing ${cmd}. Install curl, file, wget, unzip, and binutils first." >&2
+      exit 1
+    }
+  done
+  bin_dir="${HOME}/.local/bin"
+  app_dir="${HOME}/.local/share/applications"
+  install -d "${bin_dir}" "${app_dir}"
+fi
+
+cat > "${bin_dir}/thorch-start-steam-arm64" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+
+steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
+proton_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
+proton_dir="${steam_root}/steamapps/common/${proton_name}"
+mode="${THORCH_STEAM_MODE:-bigpicture}"
+use_gamescope="${THORCH_STEAM_USE_GAMESCOPE:-0}"
+gamescope_width="${THORCH_STEAM_GAMESCOPE_WIDTH:-1920}"
+gamescope_height="${THORCH_STEAM_GAMESCOPE_HEIGHT:-1080}"
+gamescope_refresh="${THORCH_STEAM_GAMESCOPE_REFRESH:-60}"
+gamescope_backend="${THORCH_STEAM_GAMESCOPE_BACKEND:-nested}"
+runtime_lib_dir=""
+mkdir -p "${steam_root}" "${steam_root}/package" "${HOME}/.steam"
+echo publicbeta > "${steam_root}/package/beta"
+
+ensure_fex_server() {
+  command -v FEXServer >/dev/null 2>&1 || return 0
+  ensure_fex_config
+
+  if ! FEXServer --persistent=3600 >/dev/null 2>&1; then
+    echo "Warning: FEXServer did not start; x86/x86_64 Steam compatibility tools may fail." >&2
+  fi
+}
+
+ensure_fex_config() {
+  local config_dir config_file server_dir
+
+  config_dir="${HOME}/.config/fex-emu"
+  config_file="${config_dir}/Config.json"
+  server_dir="${HOME}/.local/share/fex-emu/Server"
+  mkdir -p "${config_dir}" "${server_dir}"
+
+  if [[ ! -f "${config_file}" && -f /usr/config/fex-emu/Config.json ]]; then
+    cp -f /usr/config/fex-emu/Config.json "${config_file}"
+  elif [[ ! -f "${config_file}" && -f /usr/share/thorch/fex-emu/Config.json ]]; then
+    cp -f /usr/share/thorch/fex-emu/Config.json "${config_file}"
+  fi
+  [[ -f "${config_file}" ]] || return 0
+
+  python - "${config_file}" "${server_dir}" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+template = pathlib.Path("/usr/config/fex-emu/Config.json")
+if not template.exists():
+    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
+try:
+    data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+except json.JSONDecodeError:
+    data = {}
+config = data.setdefault("Config", {})
+config.update({
+    "ServerSocketPath": sys.argv[2],
+    "ThunkHostLibs": "/usr/lib/fex-emu/HostThunks",
+    "ThunkGuestLibs": "/usr/share/fex-emu/GuestThunks",
+    "TSOEnabled": "1",
+    "Multiblock": "1",
+    "X87ReducedPrecision": "1",
+    "SilentLog": "1",
+    "OutputLog": "server",
+})
+data["ThunksDB"] = {
+    "GL": 1,
+    "Vulkan": 1,
+    "drm": 1,
+    "asound": 1,
+    "WaylandClient": 1,
+    "fex_thunk_test": 0,
+}
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+install_fex_steam_tool() {
+  local system_tool user_tool
+
+  system_tool="${THORCH_FEX_STEAM_TOOL:-/usr/share/steam/fex}"
+  [[ -f "${system_tool}/toolmanifest.vdf" && -f "${system_tool}/emulator.json" ]] || return 0
+
+  mkdir -p "${steam_root}/compatibilitytools.d"
+  user_tool="${steam_root}/compatibilitytools.d/Thorch FEX"
+  ln -sfnT "${system_tool}" "${user_tool}"
+}
+
+install_rocknix_steam_compat_assets() {
+  local system_steam
+
+  system_steam="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
+  [[ -f "${system_steam}/compatibilitytool.vdf" && -f "${system_steam}/toolmanifest.vdf" ]] || return 0
+
+  mkdir -p "${steam_root}/compatibilitytools.d" "${proton_dir}" "${HOME}/.steam"
+  ln -sfnT "${proton_dir}" "${steam_root}/compatibilitytools.d/Proton11ARM"
+  cp -f "${system_steam}/compatibilitytool.vdf" "${steam_root}/compatibilitytools.d/"
+  cp -f "${system_steam}/toolmanifest.vdf" "${proton_dir}/"
+  if [[ -f "${system_steam}/registry.vdf" ]]; then
+    python - "${system_steam}/registry.vdf" "${HOME}/.steam/registry.vdf" "${steam_root}" <<'PY'
+import pathlib
+import sys
+
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+steam_root = sys.argv[3]
+text = src.read_text(encoding="utf-8").replace("@STEAM_LIBRARY@", steam_root)
+dst.write_text(text, encoding="utf-8")
+PY
+  fi
+}
+
+link_first_existing() {
+  local link fallback target
+
+  link="$1"
+  shift
+  fallback="$1"
+
+  for target in "$@"; do
+    if [[ -e "${target}" || -L "${target}" ]]; then
+      ln -sfnT "${target}" "${link}"
+      return 0
+    fi
+  done
+
+  ln -sfnT "${fallback}" "${link}"
+}
+
+ensure_steam_links() {
+  mkdir -p "${HOME}/.steam" "${steam_root}/package"
+
+  ln -sfnT "${steam_root}" "${HOME}/.steam/steam"
+  ln -sfnT "${steam_root}" "${HOME}/.steam/root"
+  link_first_existing "${HOME}/.steam/sdkarm64" "${steam_root}/steamrtarm64" "${steam_root}/linuxarm64"
+  link_first_existing "${HOME}/.steam/sdk64" "${steam_root}/linux64" "${steam_root}/steamrt64" "${steam_root}/ubuntu12_64"
+  link_first_existing "${HOME}/.steam/sdk32" "${steam_root}/linux32" "${steam_root}/steamrt32" "${steam_root}/ubuntu12_32"
+  link_first_existing "${HOME}/.steam/bin64" "${steam_root}/steamrt64" "${steam_root}/ubuntu12_64" "${steam_root}/linux64"
+  link_first_existing "${HOME}/.steam/bin32" "${steam_root}/steamrt32" "${steam_root}/ubuntu12_32" "${steam_root}/linux32"
+}
+
+steam_library_dirs() {
+  local vdf
+
+  printf '%s\n' "${steam_root}"
+  vdf="${steam_root}/steamapps/libraryfolders.vdf"
+  [[ -f "${vdf}" ]] || return 0
+
+  python - "${vdf}" <<'PY'
+import pathlib
+import re
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+for match in re.finditer(r'"path"\s+"((?:\\.|[^"\\])*)"', text):
+    raw = match.group(1)
+    print(bytes(raw, "utf-8").decode("unicode_escape"))
+PY
+}
+
+resolve_fex_rootfs() {
+  local rootfs_dir
+
+  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+    [[ -n "${rootfs_dir}" ]] || continue
+    if [[ -d "${rootfs_dir}/ArchLinux" ]]; then
+      printf '%s\t%s\n' "${rootfs_dir}/ArchLinux" "ArchLinux"
+      return 0
+    fi
+    if [[ -f "${rootfs_dir}/ArchLinux.sqsh" ]]; then
+      printf '%s\t%s\n' "${rootfs_dir}/ArchLinux.sqsh" "ArchLinux.sqsh"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+seed_fex_steam_app_configs() {
+  local appid config_base library manifest rootfs_name rootfs_path steamapps
+
+  IFS=$'\t' read -r rootfs_path rootfs_name < <(resolve_fex_rootfs) || return 0
+
+  while IFS= read -r library; do
+    [[ -n "${library}" ]] || continue
+    steamapps="${library}/steamapps"
+    [[ -d "${steamapps}" ]] || continue
+
+    shopt -s nullglob
+    for manifest in "${steamapps}"/appmanifest_*.acf; do
+      appid="${manifest##*appmanifest_}"
+      appid="${appid%.acf}"
+      [[ "${appid}" =~ ^[0-9]+$ ]] || continue
+
+      config_base="${steam_root}/steamapps/compatdata/${appid}/fex-emu"
+      mkdir -p "${config_base}/RootFS" "${config_base}/Config" "${config_base}/Server"
+      rm -rf "${config_base}/RootFS/ArchLinux" "${config_base}/RootFS/ArchLinux.sqsh"
+      ln -sfnT "${rootfs_path}" "${config_base}/RootFS/${rootfs_name}"
+
+      python - "${config_base}" "${rootfs_name}" <<'PY'
+import json
+import pathlib
+import sys
+
+base = pathlib.Path(sys.argv[1])
+rootfs_name = sys.argv[2]
+template = pathlib.Path("/usr/config/fex-emu/Config.json")
+if not template.exists():
+    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
+host = pathlib.Path("/usr/share/steam/fex/usr/lib/aarch64-linux-gnu/fex-emu/HostThunks")
+guest = pathlib.Path("/usr/share/steam/fex/usr/share/fex-emu/GuestThunks")
+if not host.exists():
+    host = pathlib.Path("/usr/lib/fex-emu/HostThunks")
+if not guest.exists():
+    guest = pathlib.Path("/usr/share/fex-emu/GuestThunks")
+
+for path in (base / "Config.json", base / "Config" / "Config.json"):
+    try:
+        data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+    except json.JSONDecodeError:
+        data = {}
+
+    config = data.setdefault("Config", {})
+    config.update({
+        "RootFS": rootfs_name,
+        "ServerSocketPath": str(base / "Server"),
+        "ThunkHostLibs": str(host),
+        "ThunkGuestLibs": str(guest),
+        "TSOEnabled": "1",
+        "Multiblock": "1",
+        "X87ReducedPrecision": "1",
+        "SilentLog": "1",
+        "OutputLog": "server",
+    })
+    data["ThunksDB"] = {
+        "GL": 1,
+        "Vulkan": 1,
+        "drm": 1,
+        "asound": 1,
+        "WaylandClient": 1,
+        "fex_thunk_test": 0,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+    done
+    shopt -u nullglob
+  done < <(steam_library_dirs | awk '!seen[$0]++')
+}
+
+install_rocknix_guest_freedreno() {
+  local rootfs_name rootfs_path source_lib
+
+  IFS=$'\t' read -r rootfs_path rootfs_name < <(resolve_fex_rootfs) || return 0
+  source_lib="/usr/share/fex-emu/libvulkan_freedreno.so"
+  [[ -d "${rootfs_path}/usr/lib" && -f "${source_lib}" ]] || return 0
+  if file "${source_lib}" | grep -q 'x86-64'; then
+    install -m 0755 "${source_lib}" "${rootfs_path}/usr/lib/libvulkan_freedreno.so"
+  fi
+}
+
+repair_cs2_runtime() {
+  local cs2_bin
+
+  cs2_bin="${steam_root}/steamapps/common/Counter-Strike Global Offensive/game/bin/linuxsteamrt64"
+  [[ -d "${cs2_bin}" ]] || return 0
+
+  if [[ -e "${cs2_bin}/libpangoft2-1.0.so.0" && ! -e "${cs2_bin}/libpangoft2-1.0.so" ]]; then
+    ln -s libpangoft2-1.0.so.0 "${cs2_bin}/libpangoft2-1.0.so"
+  fi
+}
+
+gamescope_supports_option() {
+  local option="$1"
+  gamescope --help 2>&1 | grep -q -- "${option}"
+}
+
+install_steam_icon() {
+  local icon target ext outdir tmp
+
+  outdir="${HOME}/.local/share/icons/hicolor/256x256/apps"
+  target="${outdir}/steam.png"
+  tmp="$(mktemp -d)"
+  if curl -fsSL -o "${tmp}/steam.deb" "https://repo.steampowered.com/steam/archive/precise/steam_latest.deb" &&
+      (cd "${tmp}" && ar x steam.deb data.tar.xz) &&
+      tar -xOf "${tmp}/data.tar.xz" ./usr/share/icons/hicolor/256x256/apps/steam.png > "${tmp}/steam.png"; then
+    install -d "${outdir}"
+    install -m 0644 "${tmp}/steam.png" "${target}"
+    rm -rf "${tmp}"
+    command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+      gtk-update-icon-cache -q "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
+    return 0
+  fi
+  rm -rf "${tmp}"
+
+  icon="$(find "${steam_root}" -type f \( \
+      -iname 'steam.svg' -o \
+      -iname 'steam.png' -o \
+      -iname 'steam_tray*.png' -o \
+      -iname 'icon_steam.tga' \
+    \) -print 2>/dev/null | sort | head -n1)"
+
+  [[ -n "${icon}" ]] || return 0
+
+  ext="${icon##*.}"
+  case "${ext,,}" in
+    svg)
+      outdir="${HOME}/.local/share/icons/hicolor/scalable/apps"
+      target="${outdir}/steam.svg"
+      ;;
+    png)
+      outdir="${HOME}/.local/share/icons/hicolor/256x256/apps"
+      target="${outdir}/steam.png"
+      ;;
+    tga)
+      outdir="${HOME}/.local/share/icons/hicolor/256x256/apps"
+      target="${outdir}/steam.png"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  install -d "${outdir}"
+  if [[ "${ext,,}" == "tga" ]]; then
+    python - "${icon}" "${target}" <<'PY'
+import struct
+import sys
+import zlib
+
+src, dst = sys.argv[1], sys.argv[2]
+data = open(src, "rb").read()
+if len(data) < 18:
+    raise SystemExit("TGA header is too short")
+
+id_len, color_map_type, image_type = data[0], data[1], data[2]
+width, height, bpp, descriptor = struct.unpack_from("<HHBB", data, 12)
+if color_map_type or image_type != 2 or bpp not in (24, 32) or not width or not height:
+    raise SystemExit("Unsupported Steam TGA format")
+
+pixel_size = bpp // 8
+offset = 18 + id_len
+pixels = data[offset:offset + width * height * pixel_size]
+if len(pixels) != width * height * pixel_size:
+    raise SystemExit("TGA pixel data is truncated")
+
+top_origin = bool(descriptor & 0x20)
+rows = []
+for y in range(height):
+    src_y = y if top_origin else height - 1 - y
+    start = src_y * width * pixel_size
+    row = bytearray()
+    for x in range(width):
+        px = pixels[start + x * pixel_size:start + (x + 1) * pixel_size]
+        b, g, r = px[0], px[1], px[2]
+        a = px[3] if pixel_size == 4 else 255
+        row.extend((r, g, b, a))
+    rows.append(b"\x00" + bytes(row))
+
+def chunk(kind, payload):
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
+
+png = b"\x89PNG\r\n\x1a\n"
+png += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+png += chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+png += chunk(b"IEND", b"")
+open(dst, "wb").write(png)
+PY
+  else
+    install -m 0644 "${icon}" "${target}"
+  fi
+  command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+    gtk-update-icon-cache -q "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
+}
+
+if [[ ! -d "${steam_root}/steam-runtime-steamrt-arm64" ]]; then
+  wget -c -t 5 -O "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" \
+    "https://repo.steampowered.com/steamrt3c/images/latest-public-beta/steam-runtime-steamrt-arm64.tar.xz"
+  tar xvf "${steam_root}/steam-runtime-steamrt-arm64.tar.xz" -C "${steam_root}"
+  rm -f "${steam_root}/steam-runtime-steamrt-arm64.tar.xz"
+fi
+
+runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
+if [[ -n "${runtime_lib_dir}" ]]; then
+  mkdir -p "${steam_root}/lib/aarch64-linux-gnu"
+  for soname in libibus-1.0.so.5 libgtk-x11-2.0.so.0 libgdk-x11-2.0.so.0; do
+    target="$(find "${runtime_lib_dir}" -maxdepth 1 -name "${soname}.*" -print -quit)"
+    if [[ -n "${target}" ]]; then
+      ln -sfnT "${target}" "${steam_root}/lib/aarch64-linux-gnu/${soname}"
+    fi
+  done
+fi
+
+if [[ ! -d "${steam_root}/steamrtarm64" ]]; then
+  manifest="$(curl -fsSL "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64" | strings)"
+  target_file="$(printf '%s\n' "${manifest}" | grep -Eo 'bins_linuxarm64_linuxarm64\.zip\.[^"]+' | grep -v '\.vz\.' | head -n1)"
+  [[ -n "${target_file}" ]] || { echo "Could not find ARM64 Steam zip in Valve manifest" >&2; exit 1; }
+  wget -c -t 5 -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
+  unzip -o "${steam_root}/linuxarm64.zip" -d "${steam_root}"
+  rm -f "${steam_root}/linuxarm64.zip"
+  chmod +x "${steam_root}/steamrtarm64/steam"
+fi
+
+ensure_steam_links
+install_rocknix_steam_compat_assets
+mkdir -p "${steam_root}/steamrtarm64/bin"
+if [[ -x "${steam_root}/linuxarm64/steam-launch-wrapper" ]]; then
+  ln -sfnT ../linuxarm64/steam-launch-wrapper "${steam_root}/steamrtarm64/steam-launch-wrapper"
+fi
+ln -sfnT ../vgui2_s.so "${steam_root}/steamrtarm64/bin/vgui2_s.dll"
+ln -sfnT ../filesystem_stdio.so "${steam_root}/steamrtarm64/bin/FileSystem_Steam.dll"
+install_fex_steam_tool
+install_steam_icon
+repair_cs2_runtime
+install_rocknix_guest_freedreno
+seed_fex_steam_app_configs
+ensure_fex_server
+export LD_LIBRARY_PATH="${steam_root}/steamrtarm64:${steam_root}/steamrtarm64/video:${steam_root}/lib/aarch64-linux-gnu${runtime_lib_dir:+:${runtime_lib_dir}}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export STEAM_BASE_FOLDER="${steam_root}"
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+cd "${steam_root}/steamrtarm64"
+
+steam_args=()
+case "${mode}" in
+  desktop)
+    ;;
+  deck|gamepadui)
+    steam_args=(-steamdeck -steamos3 -gamepadui)
+    ;;
+  bigpicture|*)
+    steam_args=(-bigpicture)
+    ;;
+esac
+
+if command -v gamescope >/dev/null 2>&1 && [[ "${use_gamescope}" == 1 ]]; then
+  gamescope_args=(
+    -W "${gamescope_width}"
+    -H "${gamescope_height}"
+    -r "${gamescope_refresh}"
+    --xwayland-count 2
+    -b
+    -e
+  )
+  if [[ "${gamescope_backend}" == "drm" ]]; then
+    gamescope_args+=(--backend drm)
+    if gamescope_supports_option "--use-rotation-shader"; then
+      gamescope_args+=(--use-rotation-shader)
+    fi
+    exec env -u WAYLAND_DISPLAY gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+  fi
+  exec gamescope "${gamescope_args[@]}" -- ./steam "${steam_args[@]}" "$@"
+fi
+
+exec ./steam "${steam_args[@]}" "$@"
+LAUNCHER
+
+chmod 755 "${bin_dir}/thorch-start-steam-arm64"
+
+cat > "${bin_dir}/thorch-start-steam-arm64-gamescope" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+export THORCH_STEAM_USE_GAMESCOPE=1
+export THORCH_STEAM_MODE="${THORCH_STEAM_MODE:-bigpicture}"
+exec "$(dirname "$0")/thorch-start-steam-arm64" "$@"
+LAUNCHER
+
+cat > "${bin_dir}/thorch-start-steam-arm64-deck" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+export THORCH_STEAM_MODE=deck
+exec "$(dirname "$0")/thorch-start-steam-arm64" "$@"
+LAUNCHER
+
+chmod 755 "${bin_dir}/thorch-start-steam-arm64-gamescope" "${bin_dir}/thorch-start-steam-arm64-deck"
+
+cat > "${app_dir}/thorch-steam-arm64.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Steam ARM64
+Comment=Launch native ARM64 Steam beta in Big Picture
+Exec=${bin_dir}/thorch-start-steam-arm64
+Icon=steam
+Terminal=false
+Categories=Game;
+EOF
+
+cat > "${app_dir}/thorch-steam-arm64-gamescope.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Steam ARM64 Gamescope
+Comment=Launch native ARM64 Steam beta through gamescope
+Exec=${bin_dir}/thorch-start-steam-arm64-gamescope
+Icon=steam
+Terminal=false
+Categories=Game;
+EOF
+
+cat > "${app_dir}/thorch-steam-arm64-deck.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Steam ARM64 Deck UI
+Comment=Launch native ARM64 Steam beta in Deck UI mode
+Exec=${bin_dir}/thorch-start-steam-arm64-deck
+Icon=steam
+Terminal=false
+Categories=Game;
+EOF
+
+echo "Installed ${bin_dir}/thorch-start-steam-arm64"

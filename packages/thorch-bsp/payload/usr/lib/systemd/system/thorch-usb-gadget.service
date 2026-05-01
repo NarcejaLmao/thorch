@@ -1,0 +1,16 @@
+[Unit]
+Description=Create Thorch RNDIS USB debug gadget
+Wants=sys-kernel-config.mount
+After=sys-kernel-config.mount systemd-udevd.service
+Before=NetworkManager.service thorch-usb-network.service sshd.service
+ConditionPathExists=/sys/kernel/config
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/thorch-usb-gadget
+ExecStop=/usr/bin/thorch-usb-gadget --stop
+
+[Install]
+WantedBy=multi-user.target
+Alias=usbgadget-rndis.service

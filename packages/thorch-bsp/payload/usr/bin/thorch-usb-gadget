@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+gadget=/sys/kernel/config/usb_gadget/thorch
+config="${gadget}/configs/c.1"
+mode_path=/sys/kernel/debug/usb/a600000.usb/mode
+
+mount_configfs() {
+  mountpoint -q /sys/kernel/config || mount -t configfs configfs /sys/kernel/config
+  mountpoint -q /sys/kernel/debug || mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
+}
+
+set_usb_role() {
+  [[ -w "${mode_path}" ]] && printf '%s' "${1}" > "${mode_path}" 2>/dev/null || true
+  for role in /sys/class/usb_role/*/role; do
+    [[ -w "${role}" ]] || continue
+    case "${1}" in
+      peripheral) printf 'device' > "${role}" 2>/dev/null || true ;;
+      host) printf 'host' > "${role}" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+stop_gadget() {
+  [[ -d "${gadget}" ]] || return 0
+  [[ -e "${gadget}/UDC" ]] && printf '' > "${gadget}/UDC" 2>/dev/null || true
+
+  find "${config}" -maxdepth 1 -type l -exec rm -f {} + 2>/dev/null || true
+  [[ -d "${gadget}/os_desc" ]] && find "${gadget}/os_desc" -maxdepth 1 -type l -exec rm -f {} + 2>/dev/null || true
+
+  rmdir "${gadget}/functions/rndis.usb0" 2>/dev/null || true
+  rmdir "${config}/strings/0x409" 2>/dev/null || true
+  rmdir "${config}" 2>/dev/null || true
+  rmdir "${gadget}/strings/0x409" 2>/dev/null || true
+  rmdir "${gadget}" 2>/dev/null || true
+}
+
+mount_configfs
+
+if [[ "${1:-}" == "--stop" ]]; then
+  stop_gadget
+  set_usb_role host
+  exit 0
+fi
+
+modprobe libcomposite >/dev/null 2>&1 || true
+set_usb_role peripheral
+stop_gadget
+
+install -d "${gadget}"
+printf '0x18d1' > "${gadget}/idVendor"
+printf '0x4ee3' > "${gadget}/idProduct"
+printf '0x0200' > "${gadget}/bcdUSB"
+printf '0x0100' > "${gadget}/bcdDevice"
+printf '0xEF' > "${gadget}/bDeviceClass"
+printf '0x02' > "${gadget}/bDeviceSubClass"
+printf '0x01' > "${gadget}/bDeviceProtocol"
+
+install -d "${gadget}/strings/0x409"
+printf 'thorch-thor' > "${gadget}/strings/0x409/serialnumber"
+printf 'Thorch' > "${gadget}/strings/0x409/manufacturer"
+printf 'Thorch RNDIS debug' > "${gadget}/strings/0x409/product"
+
+install -d "${config}/strings/0x409"
+printf 'RNDIS debug networking' > "${config}/strings/0x409/configuration"
+printf '250' > "${config}/MaxPower"
+
+install -d "${gadget}/functions/rndis.usb0"
+printf '02:50:72:69:6d:65' > "${gadget}/functions/rndis.usb0/dev_addr"
+printf '02:50:72:69:6d:66' > "${gadget}/functions/rndis.usb0/host_addr"
+
+if [[ -d "${gadget}/functions/rndis.usb0/os_desc/interface.rndis" ]]; then
+  printf 'RNDIS' > "${gadget}/functions/rndis.usb0/os_desc/interface.rndis/compatible_id" 2>/dev/null || true
+  printf '5162001' > "${gadget}/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id" 2>/dev/null || true
+fi
+ln -s "${gadget}/functions/rndis.usb0" "${config}/rndis.usb0"
+
+if [[ -d "${gadget}/os_desc" ]]; then
+  printf '1' > "${gadget}/os_desc/use" 2>/dev/null || true
+  printf '0xcd' > "${gadget}/os_desc/b_vendor_code" 2>/dev/null || true
+  printf 'MSFT100' > "${gadget}/os_desc/qw_sign" 2>/dev/null || true
+  ln -s "${config}" "${gadget}/os_desc/c.1" 2>/dev/null || true
+fi
+
+udc=""
+for _ in $(seq 1 30); do
+  udc="$(find /sys/class/udc -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | head -n1)"
+  [[ -n "${udc}" ]] && break
+  sleep 1
+done
+if [[ -z "${udc}" ]]; then
+  echo "thorch-usb-gadget: no USB device controller found"
+  exit 0
+fi
+
+printf '%s' "${udc}" > "${gadget}/UDC"

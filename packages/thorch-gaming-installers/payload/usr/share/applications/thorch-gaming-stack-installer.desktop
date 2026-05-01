@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install Thorch Gaming Stack
+Comment=Install Steam ARM64, gamescope, and FEX support
+Exec=thorch-install-gaming-stack
+Icon=steam
+Terminal=true
+Categories=Game;

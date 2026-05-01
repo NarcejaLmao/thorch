@@ -1,0 +1,13 @@
+"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "thorch-fex"
+    {
+      "install_path" "."
+      "display_name" "Thorch FEX"
+      "from_oslist" "linux"
+      "to_oslist" "linux"
+    }
+  }
+}

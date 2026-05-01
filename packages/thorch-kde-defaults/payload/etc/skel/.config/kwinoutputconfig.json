@@ -1,0 +1,87 @@
+[
+  {
+    "data": [
+      {
+        "allowDdcCi": true,
+        "allowSdrSoftwareBrightness": false,
+        "autoBrightnessCurve": [0, 0, 0, 0, 0, 0],
+        "autoRotation": "Never",
+        "automaticBrightness": false,
+        "brightness": 1,
+        "colorPowerTradeoff": "PreferEfficiency",
+        "colorProfileSource": "sRGB",
+        "connectorName": "DSI-1",
+        "customModes": [],
+        "detectedDdcCi": false,
+        "edrPolicy": "always",
+        "highDynamicRange": false,
+        "iccProfilePath": "",
+        "maxBitsPerColor": 0,
+        "mode": {"flags": 1, "height": 1240, "refreshRate": 59999, "width": 1080},
+        "overscan": 0,
+        "rgbRange": "Automatic",
+        "scale": 2.5,
+        "sdrBrightness": 200,
+        "sdrGamutWideness": 0,
+        "sharpness": 0,
+        "transform": "Rotated270",
+        "uuid": "353e8cc4-d98c-49ac-9306-0efa1e6355be",
+        "vrrPolicy": "Never",
+        "wideColorGamut": false
+      },
+      {
+        "allowDdcCi": true,
+        "allowSdrSoftwareBrightness": true,
+        "autoBrightnessCurve": [0, 0, 0, 0, 0, 0],
+        "autoRotation": "Never",
+        "automaticBrightness": false,
+        "brightness": 1,
+        "colorPowerTradeoff": "PreferEfficiency",
+        "colorProfileSource": "sRGB",
+        "connectorName": "DSI-2",
+        "customModes": [],
+        "detectedDdcCi": false,
+        "edrPolicy": "always",
+        "highDynamicRange": false,
+        "iccProfilePath": "",
+        "maxBitsPerColor": 0,
+        "mode": {"flags": 1, "height": 1920, "refreshRate": 120000, "width": 1080},
+        "overscan": 0,
+        "rgbRange": "Automatic",
+        "scale": 2.5,
+        "sdrBrightness": 200,
+        "sdrGamutWideness": 0,
+        "sharpness": 0,
+        "transform": "Rotated270",
+        "uuid": "10b9db2d-1e39-4e49-8731-0eeda6047ea8",
+        "vrrPolicy": "Never",
+        "wideColorGamut": false
+      }
+    ],
+    "name": "outputs"
+  },
+  {
+    "data": [
+      {
+        "lidClosed": false,
+        "outputs": [
+          {
+            "enabled": true,
+            "outputIndex": 0,
+            "position": {"x": 1920, "y": 0},
+            "priority": 2,
+            "replicationSource": ""
+          },
+          {
+            "enabled": true,
+            "outputIndex": 1,
+            "position": {"x": 0, "y": 0},
+            "priority": 1,
+            "replicationSource": ""
+          }
+        ]
+      }
+    ],
+    "name": "setups"
+  }
+]

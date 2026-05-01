@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID}" -ne 0 ]]; then
+  if command -v pkexec >/dev/null 2>&1; then
+    exec pkexec /usr/bin/thorch-install-internal-launcher "$@"
+  fi
+  echo "This installer must run as root. Open a terminal and run:" >&2
+  echo "  sudo thorch-install-internal-launcher" >&2
+  exit 1
+fi
+
+cat <<'EOF'
+Install Thorch to Internal
+
+Thorch will look for an existing internal ROCKNIX/Thorch Linux install target and
+install the running SD system there. It will not flash ABL and it will not
+create, shrink, delete, or overwrite Android userdata unless you launch the
+installer manually with --create-from-userdata.
+EOF
+
+exec /usr/bin/thorch-install-internal "$@"

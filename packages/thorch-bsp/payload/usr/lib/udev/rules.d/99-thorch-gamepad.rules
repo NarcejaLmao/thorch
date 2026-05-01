@@ -1,0 +1,1 @@
+SUBSYSTEM=="input", ATTRS{name}=="AYN Odin2 Gamepad", GROUP="input", MODE="0660", TAG+="uaccess", ENV{ID_INPUT_JOYSTICK}="1"
