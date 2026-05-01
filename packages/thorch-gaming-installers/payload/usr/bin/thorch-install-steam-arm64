@@ -38,7 +38,7 @@ if [[ "${system}" -eq 1 ]]; then
     echo "Run --system as root, or omit --system for a user-local launcher." >&2
     exit 1
   fi
-  pacman -S --needed curl file gamescope jq libxinerama lsof openal tar unzip thorch-firmware-rocknix wget
+  pacman -S --needed curl file gamescope jq libxinerama lsof lsb-release openal tar unzip thorch-firmware-rocknix wget xorg-xwininfo
   bin_dir=/usr/local/bin
   app_dir=/usr/share/applications
 else
@@ -67,8 +67,17 @@ gamescope_height="${THORCH_STEAM_GAMESCOPE_HEIGHT:-1080}"
 gamescope_refresh="${THORCH_STEAM_GAMESCOPE_REFRESH:-60}"
 gamescope_backend="${THORCH_STEAM_GAMESCOPE_BACKEND:-nested}"
 runtime_lib_dir=""
+runtime_bin_dir=""
+support_bin_dir="${steam_root}/thorch-steamos-bin"
 mkdir -p "${steam_root}" "${steam_root}/package" "${HOME}/.steam"
-echo publicbeta > "${steam_root}/package/beta"
+case "${mode}" in
+  deck|gamepadui)
+    echo steamdeck_stable > "${steam_root}/package/beta"
+    ;;
+  *)
+    echo publicbeta > "${steam_root}/package/beta"
+    ;;
+esac
 
 ensure_fex_server() {
   command -v FEXServer >/dev/null 2>&1 || return 0
@@ -324,6 +333,33 @@ repair_cs2_runtime() {
   fi
 }
 
+install_steamos_compat_stubs() {
+  mkdir -p "${support_bin_dir}"
+  cat > "${support_bin_dir}/steamos-select-branch" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+branch_file="${STEAM_BASE_FOLDER:-${HOME}/.local/share/Steam}/package/beta"
+branch="steamdeck_stable"
+if [[ -r "${branch_file}" ]]; then
+  branch="$(tr -d '\r\n' < "${branch_file}")"
+fi
+
+case "${1:-}" in
+  --current|current|get-current|print-current|"")
+    printf '%s\n' "${branch}"
+    ;;
+  --help|-h)
+    echo "usage: steamos-select-branch [--current]"
+    ;;
+  *)
+    printf '%s\n' "${branch}"
+    ;;
+esac
+EOF
+  chmod 755 "${support_bin_dir}/steamos-select-branch"
+}
+
 gamescope_supports_option() {
   local option="$1"
   gamescope --help 2>&1 | grep -q -- "${option}"
@@ -435,6 +471,7 @@ if [[ ! -d "${steam_root}/steam-runtime-steamrt-arm64" ]]; then
 fi
 
 runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
+runtime_bin_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/pressure-vessel/bin' -type d -print -quit 2>/dev/null || true)"
 if [[ -n "${runtime_lib_dir}" ]]; then
   mkdir -p "${steam_root}/lib/aarch64-linux-gnu"
   for soname in libibus-1.0.so.5 libgtk-x11-2.0.so.0 libgdk-x11-2.0.so.0; do
@@ -466,10 +503,12 @@ ln -sfnT ../filesystem_stdio.so "${steam_root}/steamrtarm64/bin/FileSystem_Steam
 install_fex_steam_tool
 install_steam_icon
 repair_cs2_runtime
+install_steamos_compat_stubs
 install_rocknix_guest_freedreno
 seed_fex_steam_app_configs
 ensure_fex_server
 export LD_LIBRARY_PATH="${steam_root}/steamrtarm64:${steam_root}/steamrtarm64/video:${steam_root}/lib/aarch64-linux-gnu${runtime_lib_dir:+:${runtime_lib_dir}}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export PATH="${support_bin_dir}${runtime_bin_dir:+:${runtime_bin_dir}}:${PATH}"
 export STEAM_BASE_FOLDER="${steam_root}"
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
@@ -515,7 +554,7 @@ cat > "${bin_dir}/thorch-start-steam-arm64-gamescope" <<'LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
 export THORCH_STEAM_USE_GAMESCOPE=1
-export THORCH_STEAM_MODE="${THORCH_STEAM_MODE:-bigpicture}"
+export THORCH_STEAM_MODE="${THORCH_STEAM_MODE:-deck}"
 exec "$(dirname "$0")/thorch-start-steam-arm64" "$@"
 LAUNCHER
 
