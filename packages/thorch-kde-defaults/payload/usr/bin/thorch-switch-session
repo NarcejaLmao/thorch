@@ -2,12 +2,13 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: thorch-switch-session desktop|mobile" >&2
+  echo "usage: thorch-switch-session desktop|mobile|steamos" >&2
   exit 2
 }
 
 [[ $# -eq 1 ]] || usage
 
+mode="$1"
 case "$1" in
   desktop)
     session="plasma.desktop"
@@ -16,6 +17,10 @@ case "$1" in
   mobile)
     session="plasma-mobile.desktop"
     label="Plasma Mobile"
+    ;;
+  steamos)
+    session="plasma-mobile.desktop"
+    label="SteamOS Mode"
     ;;
   *)
     usage
@@ -27,19 +32,81 @@ if [[ ! -f "/usr/share/wayland-sessions/${session}" && ! -f "/usr/share/xsession
   exit 1
 fi
 
+conf=/etc/sddm.conf.d/10-thorch.conf
+
+configured_user() {
+  local user=""
+
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    printf '%s\n' "${SUDO_USER}"
+    return 0
+  fi
+
+  if [[ -n "${PKEXEC_UID:-}" ]]; then
+    user="$(getent passwd "${PKEXEC_UID}" | cut -d: -f1 || true)"
+    if [[ -n "${user}" && "${user}" != "root" ]]; then
+      printf '%s\n' "${user}"
+      return 0
+    fi
+  fi
+
+  if [[ -f "${conf}" ]]; then
+    user="$(awk -F= '/^User=/ {print $2; exit}' "${conf}")"
+    if [[ -n "${user}" && "${user}" != "root" ]]; then
+      printf '%s\n' "${user}"
+      return 0
+    fi
+  fi
+
+  printf 'thorch\n'
+}
+
+run_steamos_mode_for_user() {
+  local user="$1" command="$2" home uid
+
+  command -v thorch-steamos-mode >/dev/null 2>&1 || return 1
+  home="$(getent passwd "${user}" | cut -d: -f6 || true)"
+  uid="$(id -u "${user}" 2>/dev/null || true)"
+  [[ -n "${home}" && -n "${uid}" ]] || return 1
+
+  runuser -u "${user}" -- env \
+    HOME="${home}" \
+    XDG_RUNTIME_DIR="/run/user/${uid}" \
+    /usr/bin/thorch-steamos-mode "${command}"
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
+  if [[ "${mode}" == "steamos" ]]; then
+    if ! command -v thorch-steamos-mode >/dev/null 2>&1; then
+      echo "SteamOS mode is not installed. Install the Thorch gaming stack first." >&2
+      exit 1
+    fi
+    thorch-steamos-mode enable
+  elif command -v thorch-steamos-mode >/dev/null 2>&1; then
+    thorch-steamos-mode disable
+  fi
+
   if command -v pkexec >/dev/null 2>&1; then
     exec pkexec /usr/bin/thorch-switch-session "$1"
   fi
   exec sudo /usr/bin/thorch-switch-session "$1"
 fi
 
-conf=/etc/sddm.conf.d/10-thorch.conf
+target_user="$(configured_user)"
+if [[ "${mode}" == "steamos" ]]; then
+  run_steamos_mode_for_user "${target_user}" enable || {
+    echo "SteamOS mode is not installed or cannot be enabled for ${target_user}." >&2
+    exit 1
+  }
+elif command -v thorch-steamos-mode >/dev/null 2>&1; then
+  run_steamos_mode_for_user "${target_user}" disable || true
+fi
+
 install -d -m 0755 "$(dirname "${conf}")"
 if [[ ! -f "${conf}" ]]; then
   cat >"${conf}" <<EOF
 [Autologin]
-User=thorch
+User=${target_user}
 Session=${session}
 Relogin=true
 EOF

@@ -21,4 +21,5 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-steamos-mode"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-gaming-stack-installer.desktop"
+  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-steamos.desktop"
 }
