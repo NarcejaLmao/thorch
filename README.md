@@ -171,14 +171,6 @@ media or the expected two-partition Thorch SD layout.
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
 
-On desktop sessions where `sudo` prompts are not visible, run privileged scripts
-through PolicyKit directly, for example:
-
-```bash
-pkexec ./scripts/build-image.sh
-pkexec ./scripts/sync-rocknix-kernel.sh
-pkexec ./scripts/write-image.sh output/thorch-arch-aarch64.img /dev/sdX
-```
 
 ## First Boot Debug
 
@@ -250,6 +242,8 @@ work that makes this project possible. Thorch also builds on work from Arch
 Linux ARM, Linux, KDE Plasma, FEX-Emu, Mesa/Freedreno, Qualcomm platform
 maintainers, and the handheld Linux community.
 
+Thank you to AYN for creating the Thor.
+
 Mentioning these projects is gratitude, not an endorsement claim. Thorch is an
 unofficial experiment.
 
@@ -259,16 +253,3 @@ This targets a Qualcomm Android handheld with an existing Linux-capable ABL
 path. Keep Android recovery and a known-good SD card available. Thorch v1 does
 not flash or replace ABL. Treat every image and install command in this
 repository as experimental and unsuitable for devices you depend on.
-
-## Open Source Release Hygiene
-
-Before publishing, run:
-
-```bash
-make audit
-```
-
-Publish only the source tree. Do not include `build/`, `output/`, `local/`,
-synced `vendor/` inputs, imported kernel artifacts, package `src/`/`pkg/`
-directories, raw images, package archives, root filesystems, or generated
-provenance from private local paths.
