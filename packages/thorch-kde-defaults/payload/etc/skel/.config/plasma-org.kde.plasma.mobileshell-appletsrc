@@ -5,7 +5,10 @@ immutability=1
 lastScreen=0
 location=0
 plugin=org.kde.plasma.mobile.homescreen.folio
-wallpaperplugin=org.kde.image
+wallpaperplugin=org.kde.color
+
+[Containments][1][Wallpaper][org.kde.color][General]
+Color=#000000
 
 [Containments][2]
 activityId=13154e3b-b7ed-4b2c-84d5-5928e5cad640
@@ -14,7 +17,10 @@ immutability=1
 lastScreen=1
 location=0
 plugin=org.kde.plasma.mobile.homescreen.folio
-wallpaperplugin=org.kde.image
+wallpaperplugin=org.kde.color
+
+[Containments][2][Wallpaper][org.kde.color][General]
+Color=#000000
 
 [Containments][3]
 activityId=
@@ -23,7 +29,10 @@ immutability=1
 lastScreen=0
 location=4
 plugin=org.kde.plasma.mobile.taskpanel
-wallpaperplugin=org.kde.image
+wallpaperplugin=org.kde.color
+
+[Containments][3][Wallpaper][org.kde.color][General]
+Color=#000000
 
 [Containments][4]
 activityId=
@@ -32,5 +41,7 @@ immutability=1
 lastScreen=0
 location=3
 plugin=org.kde.plasma.mobile.panel
-wallpaperplugin=org.kde.image
+wallpaperplugin=org.kde.color
 
+[Containments][4][Wallpaper][org.kde.color][General]
+Color=#000000

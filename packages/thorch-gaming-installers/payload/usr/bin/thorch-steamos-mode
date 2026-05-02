@@ -140,6 +140,27 @@ function isSteamModeWindow(window) {
            haystack.indexOf("steam") !== -1;
 }
 
+function isThorchActionDrawer(window) {
+    if (!window) {
+        return false;
+    }
+    const caption = textValue(window.caption || window.captionNormal);
+    const resource = textValue(window.resourceClass || window.resourceName || window.windowClass).toLowerCase();
+    return caption === "Thorch Action Drawer" &&
+           resource.indexOf("plasmashell") !== -1;
+}
+
+function applyThorchActionDrawer(window) {
+    if (!isThorchActionDrawer(window)) {
+        return;
+    }
+    try {
+        window.skipTaskbar = true;
+        window.skipSwitcher = true;
+    } catch (e) {
+    }
+}
+
 function applySteamMode(window) {
     if (!isSteamModeWindow(window)) {
         return;
@@ -177,8 +198,10 @@ function applySteamMode(window) {
 }
 
 function wireWindow(window) {
+    applyThorchActionDrawer(window);
     applySteamMode(window);
     try {
+        window.captionChanged.connect(() => applyThorchActionDrawer(window));
         window.captionChanged.connect(() => applySteamMode(window));
         window.outputChanged.connect(() => applySteamMode(window));
     } catch (e) {
@@ -198,6 +221,18 @@ EOF
   qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript thorch-steamos-mode >/dev/null 2>&1 || true
   qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${kwin_script}" thorch-steamos-mode >/dev/null 2>&1 || true
   qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1 || true
+}
+
+enable_plasma_mobile_steamos_overrides() {
+  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
+    sudo -n /usr/lib/thorch/plasma-mobile-action-drawer-mode enable >/dev/null 2>&1 || true
+  fi
+}
+
+disable_plasma_mobile_steamos_overrides() {
+  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
+    sudo -n /usr/lib/thorch/plasma-mobile-action-drawer-mode disable >/dev/null 2>&1 || true
+  fi
 }
 
 unload_kwin_mode_script() {
@@ -300,6 +335,7 @@ start_mode() {
   fi
 
   ensure_launcher
+  enable_plasma_mobile_steamos_overrides
   load_kwin_mode_script
 
   setsid env \
@@ -348,6 +384,7 @@ stop_mode() {
   pkill -KILL -u "${uid}" -f '/usr/bin/FEX .*/\.local/share/Steam/steamapps/common/' >/dev/null 2>&1 || true
   rm -f "${pid_file}"
   unload_kwin_mode_script
+  disable_plasma_mobile_steamos_overrides
   echo "Stopped SteamOS mode."
 }
 

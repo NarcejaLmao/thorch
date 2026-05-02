@@ -94,12 +94,20 @@ fi
 
 target_user="$(configured_user)"
 if [[ "${mode}" == "steamos" ]]; then
+  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
+    /usr/lib/thorch/plasma-mobile-action-drawer-mode enable || true
+  fi
   run_steamos_mode_for_user "${target_user}" enable || {
     echo "SteamOS mode is not installed or cannot be enabled for ${target_user}." >&2
     exit 1
   }
-elif command -v thorch-steamos-mode >/dev/null 2>&1; then
-  run_steamos_mode_for_user "${target_user}" disable || true
+else
+  if [[ -x /usr/lib/thorch/plasma-mobile-action-drawer-mode ]]; then
+    /usr/lib/thorch/plasma-mobile-action-drawer-mode disable || true
+  fi
+  if command -v thorch-steamos-mode >/dev/null 2>&1; then
+    run_steamos_mode_for_user "${target_user}" disable || true
+  fi
 fi
 
 install -d -m 0755 "$(dirname "${conf}")"

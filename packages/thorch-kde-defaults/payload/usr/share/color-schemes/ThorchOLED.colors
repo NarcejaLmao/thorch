@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Thorch contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 [ColorEffects:Disabled]
 Color=40,40,40
 ColorAmount=0
@@ -135,16 +138,8 @@ ColorScheme=ThorchOLED
 Name=Thorch OLED
 shadeSortColumn=true
 
-[Icons]
-Theme=breeze-dark
-
 [KDE]
 contrast=4
-widgetStyle=Breeze
-
-[KScreen]
-ScaleFactor=2.5
-ScreenScaleFactors=DSI-2=2.5;DSI-1=2.5;
 
 [WM]
 activeBackground=0,0,0
