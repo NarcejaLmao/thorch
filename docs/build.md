@@ -32,8 +32,7 @@ make kernel
 ```
 
 You can also import from a mounted or extracted ROCKNIX image. The importer
-expects `Image`, `dtb/qcom/qcs8550-ayn-thor.dtb`, and matching
-`usr/lib/modules/<kernel-release>/`:
+expects `KERNEL`, `Image`, and matching `usr/lib/modules/<kernel-release>/`:
 
 ```bash
 make import-kernel BOOT_DIR=/mnt/rocknix-boot ROOT_DIR=/mnt/rocknix-root KERNEL_REF=<rocknix-build-label>
@@ -49,8 +48,9 @@ freshly mounted or freshly extracted ROCKNIX image and keep the `KERNEL_REF`
 label tied to that input.
 
 `make build` and `make packages` run `scripts/sync-rocknix-kernel.sh`
-automatically when `vendor/rocknix-kernel/boot/Image` or the imported FEX
-runtime is missing. To pin a specific upstream image, set one of:
+automatically when `vendor/rocknix-kernel/boot/KERNEL`,
+`vendor/rocknix-kernel/boot/Image`, or the imported FEX runtime is missing. To
+pin a specific upstream image, set one of:
 
 ```bash
 ROCKNIX_KERNEL_SOURCE=stable ROCKNIX_KERNEL_RELEASE=latest make kernel
@@ -87,9 +87,10 @@ packages, creates a GPT raw image, and generates the ABL `/KERNEL` boot image:
 make build
 ```
 
-The generated `/KERNEL` is not copied through from ROCKNIX unchanged. Thorch
-rebuilds it with `thorch-rebuild-abl-kernel` so the Android boot image embeds
-the Thor DTB and the root UUID for this image.
+The generated `/KERNEL` is repacked from the imported ROCKNIX boot image.
+`thorch-rebuild-abl-kernel` preserves ROCKNIX's kernel payload, including the
+embedded Thor DTB, and replaces the ramdisk plus root UUID command line for the
+generated image. An imported ROCKNIX `/KERNEL` is required.
 
 The image builder assembles FAT and ext4 filesystem images directly and writes
 them into a raw GPT image. It does not mount image partitions or bind-mount host
@@ -121,7 +122,7 @@ artifacts changed, run `scripts/build-image-fast.sh --with-kernel`.
 The default image package set is:
 
 ```bash
-linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
+linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers thorch-inputplumber thorch-rocknix-quirks thorch-mangohud
 ```
 
 `thorch-kde-defaults` installs Firefox and the core KDE desktop applications:

@@ -23,7 +23,7 @@ and license notices clear.
 
 Thorch currently syncs or imports:
 
-- Official ROCKNIX SM8550 image artifacts: `/KERNEL`, kernel `Image`, DTBs,
+- Official ROCKNIX SM8550 image artifacts: `/KERNEL`, kernel `Image`,
   modules, and selected `/SYSTEM` runtime files.
 - Public ROCKNIX firmware, filesystem overlays, device configuration, kernel
   metadata, and related platform files.
@@ -69,7 +69,8 @@ the machines are helping loudly, not driving unsupervised.
 - USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
 - Thor joystick RGB helper with battery-status, static color, and off modes.
 - ROCKNIX ABL-compatible FAT boot partition.
-- Top-level `/KERNEL`, `/Image`, `/LinuxLoader.cfg`, and Thor DTB layout.
+- Top-level `/KERNEL` Android boot image with the ROCKNIX-compatible FAT boot
+  partition layout.
 - Internal installer that formats selected Linux boot/root partitions and never
   flashes ABL.
 
@@ -160,7 +161,8 @@ you need non-default options.
 
 The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
-thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers`. Override
+thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
+thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
 After first boot from a larger SD card, use the `Expand SD Root` desktop icon to

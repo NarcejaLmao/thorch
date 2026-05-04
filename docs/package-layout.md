@@ -1,11 +1,16 @@
 # Package Layout
 
-`linux-thorch` packages prebuilt ROCKNIX SM8550 kernel artifacts for AYN Thor. It
-installs `/boot/Image`, the Thor DTB, matching modules, and a mkinitcpio preset.
+`linux-thorch` packages prebuilt ROCKNIX SM8550 kernel artifacts for AYN Thor.
+It installs the imported ROCKNIX `/KERNEL` source payload, matching modules, a
+module-tree `Image` anchor for mkinitcpio, and a mkinitcpio preset. It does not
+install raw `/boot/Image`; `/boot/KERNEL` is the ABL boot payload.
 Thorch does not replay ROCKNIX kernel patches in v1; it builds its own initramfs
-against the imported kernel.
+against the imported kernel. When building `/boot/KERNEL`, Thorch repacks
+ROCKNIX's imported Android boot image so the original kernel payload and
+embedded Thor DTB are preserved while only the initramfs and root command line
+change.
 
-`thorch-bsp` owns the ABL boot contract, including `LinuxLoader.cfg`,
+`thorch-bsp` owns the ABL boot contract, including
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
 USB debug gadget, boot diagnostics, Thor joystick RGB control, fake-suspend and
 power-key handling, dual-panel backlight helpers, gamepad/input udev rules,
@@ -43,9 +48,23 @@ registrations, a `libfmt.so.11` compatibility library for the imported binaries,
 and a Steam-compatible FEX tool under `/usr/share/steam/fex`. The package
 provides and replaces the old `thorch-fex` name for upgrades.
 
-`thorch-gamescope` builds Valve's gamescope from source with the Thorch nested
-Wayland touch patch applied. It provides and conflicts with `gamescope`, so
-installers and launchers can continue invoking the standard `gamescope` command.
+`thorch-gamescope` builds Valve's gamescope from source with the ROCKNIX
+handheld gamescope patch set consumed from the synced `vendor/rocknix-sm8550`
+tree. It keeps only the Arch-specific wlroots workaround locally. It provides
+and conflicts with `gamescope`, so installers and launchers can continue
+invoking the standard `gamescope` command.
+
+`thorch-rocknix-quirks` packages ROCKNIX-derived SM8550 handheld quirk metadata
+for Thorch. It exports Arch-safe profile hints for touchscreen, audio path,
+thermal, CPU/GPU frequency paths, modifier buttons, and MangoHud support while
+preserving the original ROCKNIX quirk scripts from the synced
+`vendor/rocknix-sm8550` tree under `/usr/share/thorch/rocknix-quirks/SM8550`
+for provenance. It does not execute ROCKNIX's `/storage` autostart scripts
+directly.
+
+`thorch-mangohud` builds MangoHud with ROCKNIX's SM8550 GPU fdinfo patch and
+installs the ROCKNIX MangoHud configuration as `/etc/MangoHud.conf`, both from
+the synced `vendor/rocknix-sm8550` tree.
 
 `thorch-gaming-installers` provides the opt-in Steam ARM64, FEX setup, gaming
 stack installer, and SteamOS-mode launchers. It does not redistribute Steam

@@ -25,6 +25,26 @@ Image and package builds refuse kernel provenance that points back at local
 `makepkg` output or smoke-test imports. Re-import kernel artifacts from a mounted
 or extracted ROCKNIX image before preparing release artifacts.
 
+## AYN Linux
+
+AYN also publishes the kernel work that underpins the SM8550 handheld ports:
+
+https://github.com/AYNTechnologies/linux
+
+The important public branches are:
+
+- `sm8550/v6.17.5`: AYN's SM8550 kernel branch with the shared QCS8550 device
+  tree, Odin 2, Odin 2 Mini, Odin 2 Portal, Thor, RSInput gamepad, panel,
+  backlight, RGB LED, SD, USB, and audio enablement.
+- `ayn/v7.0`: AYN's newer Linux 7.0 branch. As of 2026-05-04 it keeps the Thor
+  DTS equivalent to `sm8550/v6.17.5`, carries small SM8550 common cleanup, and
+  adds the separate CQ8725S/SM8750 Odin 3 device tree stack.
+
+Thorch still imports the packaged ROCKNIX kernel/runtime artifacts for builds,
+but AYN's branches should be treated as source-level provenance and review
+material when updating kernel, DTS, firmware paths, ALSA card aliases, gamepad
+handling, or RGB support.
+
 ## Firmware
 
 Thor firmware is sourced from the public ROCKNIX SM8550 firmware tree and
