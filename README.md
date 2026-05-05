@@ -20,7 +20,7 @@ the recovery and staging path.
 - Local packages for the imported ROCKNIX boot/kernel artifacts,
   firmware/runtime artifacts, board support, KDE defaults, internal install,
   FEX runtime, ROCKNIX-patched Gamescope, InputPlumber maps, ROCKNIX SM8550
-  quirks, MangoHud, and Steam/gaming setup launchers.
+  quirks, MangoHud, and firstboot-driven Steam/gaming setup.
 - Plasma Desktop Wayland as the default session while Thor touch is being
   stabilized.
 - Plasma Mobile Wayland is optional, and SteamOS-mode helpers can temporarily
@@ -191,16 +191,17 @@ thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
 Wi-Fi, SD/live-vs-install intent, default mode, user/password setup, theme
-selection, and safe in-window SD expansion/internal install actions.
+selection, Steam/gaming setup when Steam mode is selected, and safe in-window SD
+expansion/internal install actions.
 
 `thorch-inputplumber` installs InputPlumber's upstream rootfs contents and
 overlays only the Thor input maps. The image builder enables its service only
 when that package/unit is present, so custom package sets can omit it.
 
-After first boot from a larger SD card, use the `Expand SD Root` desktop icon to
-grow the booted root partition and ext4 filesystem to fill the card. The
-expander only operates on the mounted `/` device and accepts either removable
-media or the expected two-partition Thorch SD layout.
+After first boot from a larger SD card, choose the SD expansion option in the
+firstboot flow to grow the booted root partition and ext4 filesystem to fill the
+card. The expander only operates on the mounted `/` device and accepts either
+removable media or the expected two-partition Thorch SD layout.
 
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.

@@ -44,14 +44,14 @@ scans/connects Wi-Fi through NetworkManager, creates or updates the selected
 user, applies password policy, writes the chosen KDE theme, stages the selected
 Thorch session through `thorch-sessionctl`, and records completion under
 `/var/lib/thorch/firstboot`. The QML flow can also run the safe existing-target
-SD expansion/internal-install actions in-window; destructive Android userdata
+SD expansion/internal-install actions in-window and call the gaming stack
+installer command when Steam mode is selected; destructive Android userdata
 shrinking remains a terminal-only installer path.
 
-`thorch-installer` provides `thorch-install-internal` and the `Expand SD Root`
-desktop launcher for growing the booted SD root partition after first boot. The
-root expander grows only the currently mounted ext4 `/` partition and requires a
-removable device or the expected two-partition Thorch SD layout unless `--force`
-is used.
+`thorch-installer` provides `thorch-install-internal` and
+`thorch-expand-root` for firstboot and CLI recovery flows. The root expander
+grows only the currently mounted ext4 `/` partition and requires a removable
+device or the expected two-partition Thorch SD layout unless `--force` is used.
 
 `thorch-fex-bin` repackages the matching ROCKNIX `/SYSTEM` FEX runtime. It
 installs FEX, Vulkan/OpenGL, audio, DRM, and Wayland thunks, binfmt
@@ -78,11 +78,12 @@ installs the ROCKNIX MangoHud configuration as `/etc/MangoHud.conf`, both from
 the synced `vendor/rocknix-sm8550` tree.
 
 `thorch-gaming-installers` provides the opt-in Steam ARM64, FEX setup, gaming
-stack installer, and SteamOS-mode launchers. It does not redistribute Steam
-client payloads. It keeps ROCKNIX-style Steam metadata in `/usr/share/steam` for
-the ARM64 Proton compatibility-tool stub, and links the packaged FEX tool from
-`/usr/share/steam/fex` into the user's Steam compatibility tools during
-setup/launch. The Steam launcher keeps the user Steam symlinks fresh, seeds
+stack installer command, and SteamOS-mode launchers. It does not redistribute
+Steam client payloads. It keeps ROCKNIX-style Steam metadata in
+`/usr/share/steam` for the ARM64 Proton compatibility-tool stub, and links the
+packaged FEX tool from `/usr/share/steam/fex` into the user's Steam
+compatibility tools during setup/launch. The Steam launcher keeps the user Steam
+symlinks fresh, seeds
 per-app FEX configs with DRM, Vulkan, GL, asound, and Wayland host libraries,
 and leaves global FEX binfmt registrations enabled so Steam Runtime and
 pressure-vessel x86_64 helper binaries are handed to FEX normally. The packaged
