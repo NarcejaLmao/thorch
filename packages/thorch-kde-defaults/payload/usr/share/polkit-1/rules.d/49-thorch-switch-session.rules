@@ -1,6 +1,7 @@
 polkit.addRule(function(action, subject) {
   if (action.id == "org.freedesktop.policykit.exec" &&
-      action.lookup("program") == "/usr/bin/thorch-switch-session" &&
+      (action.lookup("program") == "/usr/bin/thorch-switch-session" ||
+       action.lookup("program") == "/usr/bin/thorch-sessionctl") &&
       subject.active &&
       subject.isInGroup("wheel")) {
     return polkit.Result.YES;

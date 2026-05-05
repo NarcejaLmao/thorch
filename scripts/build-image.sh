@@ -211,6 +211,9 @@ run_rootfs "test -f /usr/lib/firmware/qcom/a740_sqe.fw && test -f /usr/lib/firmw
   die "missing ROCKNIX Adreno firmware files"
 
 log "configuring Thorch user and services"
+cat > "${rootfs_dir}/etc/locale.conf" <<'EOF'
+LANG=C.UTF-8
+EOF
 run_rootfs "for g in wheel adm video input audio storage render; do getent group \$g >/dev/null || groupadd -r \$g; done"
 run_rootfs "id ${thorch_user_q} >/dev/null 2>&1 || useradd -m -s /bin/bash -G wheel,adm,video,input,audio,storage,render ${thorch_user_q}"
 set_rootfs_passwords
@@ -265,6 +268,7 @@ rootfs_services=(
   thorch-rgb-poweroff.service
   thorch-touchscreen-setup.service
   thorch-f24-escape.service
+  thorch-session-recovery.service
   thorch-powerkeyd.service
   thorch-debug-report.service
 )

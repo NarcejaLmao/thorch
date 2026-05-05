@@ -1,0 +1,14 @@
+#
+# Thorch wrapper for Plasma's compositor-side virtual keyboard.
+#
+# Qt Virtual Keyboard must be selected on the compositor keyboard process, not
+# inside client apps such as firstboot. Keeping this as a separate desktop entry
+# avoids editing the upstream org.kde.plasma.keyboard.desktop file.
+#
+[Desktop Entry]
+Name=Thorch Plasma Keyboard
+Exec=env QT_IM_MODULES=qtvirtualkeyboard QT_QPA_PLATFORM=wayland /usr/bin/plasma-keyboard
+Type=Application
+X-KDE-Wayland-VirtualKeyboard=true
+Icon=input-keyboard-virtual
+NoDisplay=true

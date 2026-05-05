@@ -1,4 +1,3 @@
 [Wayland]
-InputMethod=/usr/share/applications/org.kde.plasma.keyboard.desktop
+InputMethod=/usr/share/applications/thorch-plasma-keyboard.desktop
 VirtualKeyboardEnabled=true
-

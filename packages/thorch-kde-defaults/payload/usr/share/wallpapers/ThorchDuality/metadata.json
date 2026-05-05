@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Thorch contributors"
+            }
+        ],
+        "Id": "ThorchDuality",
+        "License": "GPL-2.0-or-later",
+        "Name": "Thorch Duality"
+    }
+}

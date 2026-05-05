@@ -34,7 +34,18 @@ touch calibration service, the F24 desktop escape helper, OLED Plasma theme and
 color scheme, desktop/mobile session switchers, Firefox, and the core KDE
 desktop applications. Plasma Mobile is installed for testing and SteamOS-mode
 handoff, but the image builder selects Plasma Desktop by default unless
-`THORCH_DEFAULT_SESSION` is changed.
+`THORCH_DEFAULT_SESSION` is changed. Session changes go through
+`thorch-sessionctl`, which stages SDDM autologin updates and prefers a clean
+reboot over restarting SDDM from inside a live Plasma session.
+
+`thorch-firstboot` installs the fullscreen QML onboarding app, root helper,
+Polkit rule, autostart entry, and optional Wayland session entry. The helper
+scans/connects Wi-Fi through NetworkManager, creates or updates the selected
+user, applies password policy, writes the chosen KDE theme, stages the selected
+Thorch session through `thorch-sessionctl`, and records completion under
+`/var/lib/thorch/firstboot`. The QML flow can also run the safe existing-target
+SD expansion/internal-install actions in-window; destructive Android userdata
+shrinking remains a terminal-only installer path.
 
 `thorch-installer` provides `thorch-install-internal` and the `Expand SD Root`
 desktop launcher for growing the booted SD root partition after first boot. The
