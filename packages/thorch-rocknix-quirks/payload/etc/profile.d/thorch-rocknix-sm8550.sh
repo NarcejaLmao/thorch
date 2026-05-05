@@ -23,3 +23,21 @@ export DEVICE_FUNC_KEYB_MODIFIER="BTN_START"
 
 export UI_SHADER="slangp"
 export THORCH_ROCKNIX_QUIRKS_DIR="/usr/share/thorch/rocknix-quirks/SM8550"
+
+if [ -z "${SDL_GAMECONTROLLERCONFIG_FILE:-}" ] &&
+  [ -f /usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt ]; then
+  export SDL_GAMECONTROLLERCONFIG_FILE="/usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt"
+fi
+
+if [ -z "${SDL_GAMEPADCONFIG_FILE:-}" ] &&
+  [ -f /usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt ]; then
+  export SDL_GAMEPADCONFIG_FILE="/usr/share/thorch/SDL-GameControllerDB/gamecontrollerdb.txt"
+fi
+
+if [ -z "${SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT:-}" ]; then
+  export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT="${THORCH_SDL_GAMEPAD_IGNORE_EXCEPT:-0x045e/0x0b12}"
+fi
+
+if [ -z "${SDL_GAMEPAD_IGNORE_DEVICES_EXCEPT:-}" ]; then
+  export SDL_GAMEPAD_IGNORE_DEVICES_EXCEPT="${THORCH_SDL_GAMEPAD_IGNORE_EXCEPT:-0x045e/0x0b12}"
+fi

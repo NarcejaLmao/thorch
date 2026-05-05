@@ -2,7 +2,7 @@
 
 pkgname=thorch-inputplumber
 pkgver=0.76.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Input router and remapper for AYN Odin 2'
 arch=(aarch64)
 url='https://github.com/ShadowBlip/InputPlumber'
@@ -15,6 +15,5 @@ package() {
   cp -a "${srcdir}/inputplumber/." "${pkgdir}/"
   chmod 755 "${pkgdir}/usr/bin/inputplumber"
 
-  install -d "${pkgdir}/usr/share/inputplumber"
-  cp -a "${startdir}/payload/usr/share/inputplumber/." "${pkgdir}/usr/share/inputplumber/"
+  cp -a "${startdir}/payload/." "${pkgdir}/"
 }
