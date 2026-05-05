@@ -16,9 +16,10 @@ QS.QuickSetting {
 
     property bool actionRunning: false
     property bool steamRunning: false
+    readonly property string steamModeCommand: "THORCH_STEAMOS_LAUNCHER=$HOME/.local/bin/thorch-start-steam-arm64 /usr/bin/thorch-steamos-mode"
 
     function refreshSteamState() {
-        statusSource.connectSource("/usr/bin/thorch-steamos-mode is-running");
+        statusSource.connectSource(steamModeCommand + " is-running");
     }
 
     function toggle() {
@@ -26,7 +27,7 @@ QS.QuickSetting {
             return;
         }
         actionRunning = true;
-        actionSource.connectSource("/usr/bin/thorch-steamos-mode " + (steamRunning ? "stop" : "start"));
+        actionSource.connectSource(steamModeCommand + " " + (steamRunning ? "stop" : "start"));
     }
 
     P5Support.DataSource {

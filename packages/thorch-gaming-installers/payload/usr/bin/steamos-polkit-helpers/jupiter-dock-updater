@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+no_update_rc=7
+
 case "${1:-}" in
   -h|--help|help)
     echo "usage: jupiter-dock-updater [--check|--update]"
     ;;
-  --check|check|status|"")
+  --check|check|status|list|list-updates)
     echo "No Steam Deck dock firmware update is available on Thorch." >&2
+    exit "${no_update_rc}"
+    ;;
+  --update|update|apply|install|"")
+    echo "Skipping Steam Deck dock firmware update on Thorch." >&2
     ;;
   *)
     echo "Steam Deck dock firmware command '${1:-status}' is not used on Thorch; treating as complete." >&2
