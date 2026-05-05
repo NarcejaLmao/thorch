@@ -2,11 +2,11 @@
 
 pkgname=thorch-gaming-installers
 pkgver=1
-pkgrel=11
+pkgrel=16
 pkgdesc='Steam ARM64 and required FEX gaming setup for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
-depends=(bash binutils coreutils curl file jq libxinerama lsof lsb-release openal python squashfs-tools tar unzip thorch-firmware-rocknix wget xorg-xwininfo thorch-fex-bin)
+depends=(bash binutils coreutils curl file jq libxinerama lsof lsb-release openal python squashfs-tools sudo tar unzip thorch-firmware-rocknix wget xorg-xwininfo thorch-fex-bin)
 optdepends=('thorch-gamescope: patched Steam gamepad UI session'
             'gamescope: fallback Steam gamepad UI session'
             'thorch-mangohud: ROCKNIX SM8550 MangoHud overlay config'
@@ -21,6 +21,13 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-install-gaming-stack"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-steam-arm64"
   chmod 755 "${pkgdir}/usr/bin/thorch-steamos-mode"
+  chmod 755 "${pkgdir}/usr/bin/steamos-update"
+  chmod 755 "${pkgdir}/usr/bin/jupiter-biosupdate"
+  chmod 755 "${pkgdir}/usr/bin/set-timezone"
+  chmod 755 "${pkgdir}/usr/bin/steamos-polkit-helpers/set-timezone"
+  chmod 755 "${pkgdir}/usr/bin/steamos-polkit-helpers/steamos-devkit-mode"
+  chmod 755 "${pkgdir}/usr/bin/steamos-polkit-helpers/jupiter-dock-updater"
+  chmod 440 "${pkgdir}/etc/sudoers.d/49-thorch-steamos-compat"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-gaming-stack-installer.desktop"
   chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-switch-to-steamos.desktop"
 }

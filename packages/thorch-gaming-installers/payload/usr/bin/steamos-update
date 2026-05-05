@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-status}"
+no_update_rc=7
+
+for arg in "$@"; do
+  if [[ "${arg}" == "--supports-duplicate-detection" ]]; then
+    echo "This helper supports the duplicate detection option." >&2
+    exit 0
+  fi
+done
+
+case "${command_name}" in
+  -h|--help|help)
+    cat <<'EOF'
+usage: steamos-update [check|status|download|apply]
+
+Thorch does not use the SteamOS updater. This compatibility helper reports that
+no SteamOS system update is available so Steam Deck UI can continue.
+EOF
+    ;;
+  check|status|list|list-updates)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit "${no_update_rc}"
+    ;;
+  download|update|apply|install|reboot|cleanup)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit "${no_update_rc}"
+    ;;
+  --beta|-d|--enable-duplicate-detection)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit "${no_update_rc}"
+    ;;
+  *)
+    echo "SteamOS update command '${command_name}' is not used on Thorch; no update is available." >&2
+    exit "${no_update_rc}"
+    ;;
+esac
+
+exit 0

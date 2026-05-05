@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Switch to SteamOS Mode
-Comment=Use Plasma Mobile and start SteamOS mode after login
+Comment=Reboot into Steam mode with Plasma Mobile
 Exec=/usr/bin/thorch-switch-session steamos
 Icon=steam
 Terminal=false

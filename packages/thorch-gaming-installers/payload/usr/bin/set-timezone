@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  echo "No timezone requested; leaving Thorch timezone unchanged."
+  exit 0
+fi
+
+case "${1:-}" in
+  -h|--help|help)
+    echo "usage: set-timezone TIMEZONE"
+    exit 0
+    ;;
+esac
+
+timezone="$1"
+if [[ "${timezone}" =~ ^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$ && -f "/usr/share/zoneinfo/${timezone}" ]]; then
+  if command -v timedatectl >/dev/null 2>&1; then
+    timedatectl set-timezone "${timezone}" 2>/dev/null || true
+  fi
+  echo "Timezone set to ${timezone}."
+else
+  echo "Ignoring unsupported timezone '${timezone}' on Thorch."
+fi
+
+exit 0

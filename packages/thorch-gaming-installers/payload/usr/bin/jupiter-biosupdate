@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-check}"
+
+case "${command_name}" in
+  -h|--help|help)
+    cat <<'EOF'
+usage: jupiter-biosupdate [check|update|apply]
+
+Thorch does not use the Steam Deck BIOS updater. This compatibility helper
+reports that no firmware update is available so Steam Deck UI can continue.
+EOF
+    ;;
+  check|status|list)
+    echo "No Steam Deck firmware update is available on Thorch." >&2
+    ;;
+  update|apply|install)
+    echo "Skipping Steam Deck firmware update on Thorch." >&2
+    ;;
+  *)
+    echo "Steam Deck firmware command '${command_name}' is not used on Thorch; treating as complete." >&2
+    ;;
+esac
+
+exit 0

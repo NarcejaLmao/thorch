@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help|help)
+    echo "usage: steamos-devkit-mode [--enable|--disable|--status]"
+    ;;
+  --status|status)
+    echo "disabled"
+    ;;
+  *)
+    echo "SteamOS devkit mode is not used on Thorch."
+    ;;
+esac
+
+exit 0

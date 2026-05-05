@@ -19,6 +19,21 @@ restart_binfmt() {
   fi
 }
 
+stop_fex_server() {
+  command -v FEXServer >/dev/null 2>&1 || return 0
+  pkill -u "$(id -u)" -x FEXServer >/dev/null 2>&1 || true
+  sleep 1
+}
+
+start_fex_server() {
+  command -v FEXServer >/dev/null 2>&1 || return 0
+  if pgrep -u "$(id -u)" -x FEXServer >/dev/null 2>&1; then
+    return 0
+  fi
+  setsid FEXServer --persistent=3600 >/dev/null 2>&1 &
+  sleep 1
+}
+
 install_steam_tool() {
   local steam_root system_tool user_tool
 
@@ -57,7 +72,7 @@ PY
 resolve_fex_rootfs() {
   local rootfs_dir
 
-  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.fex-emu/RootFS" "${HOME}/.local/share/fex-emu/RootFS"; do
     [[ -n "${rootfs_dir}" ]] || continue
     if [[ -d "${rootfs_dir}/ArchLinux" ]]; then
       printf '%s\t%s\n' "${rootfs_dir}/ArchLinux" "ArchLinux"
@@ -70,6 +85,26 @@ resolve_fex_rootfs() {
   done
 
   return 1
+}
+
+ensure_canonical_fex_rootfs() {
+  local rootfs_name="$1" rootfs_path="$2" target
+
+  [[ -n "${rootfs_name}" && -n "${rootfs_path}" ]] || return 0
+  mkdir -p "${HOME}/.fex-emu/RootFS"
+  target="${HOME}/.fex-emu/RootFS/${rootfs_name}"
+
+  if [[ "${rootfs_path}" == "${target}" ]]; then
+    return 0
+  fi
+
+  if [[ -L "${target}" || -f "${target}" ]]; then
+    rm -f "${target}"
+  elif [[ -d "${target}" ]]; then
+    return 0
+  fi
+
+  ln -sfnT "${rootfs_path}" "${target}"
 }
 
 seed_fex_steam_app_configs() {
@@ -259,15 +294,19 @@ if [[ ! -d "${config_src}" ]]; then
   config_src=/usr/share/thorch/fex-emu
 fi
 config_dst="${HOME}/.config/fex-emu"
+legacy_config_dst="${HOME}/.fex-emu"
 if [[ -d "${config_src}" ]]; then
-  mkdir -p "${config_dst}"
-  cp -a "${config_src}/." "${config_dst}/"
+  for dst in "${legacy_config_dst}" "${config_dst}"; do
+    mkdir -p "${dst}"
+    cp -a "${config_src}/." "${dst}/"
+  done
 fi
 
+write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux.sqsh"
 write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux.sqsh"
 
 if command -v FEXRootFSFetcher >/dev/null 2>&1; then
-  rootfs_dir="${FEX_ROOTFS_DIR:-${HOME}/.local/share/fex-emu/RootFS}"
+  rootfs_dir="${FEX_ROOTFS_DIR:-${HOME}/.fex-emu/RootFS}"
   rootfs_file="${rootfs_dir}/ArchLinux.sqsh"
   rootfs_tree="${rootfs_dir}/ArchLinux"
   mkdir -p "${rootfs_dir}"
@@ -277,7 +316,7 @@ if command -v FEXRootFSFetcher >/dev/null 2>&1; then
   else
     FEXRootFSFetcher -y -x --distro-name arch --distro-version rolling
   fi
-  for candidate in "${rootfs_dir}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+  for candidate in "${rootfs_dir}" "${HOME}/.fex-emu/RootFS" "${HOME}/.local/share/fex-emu/RootFS"; do
     [[ -n "${candidate}" ]] || continue
     if [[ -f "${candidate}/ArchLinux.sqsh" || -d "${candidate}/ArchLinux" ]]; then
       rootfs_dir="${candidate}"
@@ -293,19 +332,32 @@ else
   exit 1
 fi
 
-if [[ -f "${config_dst}/Config.json" && -d "${rootfs_tree}" ]]; then
+if [[ -d "${rootfs_tree}" ]]; then
+  ensure_canonical_fex_rootfs "ArchLinux" "${rootfs_tree}"
+  write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux"
   write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux"
+elif [[ -f "${rootfs_file}" ]]; then
+  ensure_canonical_fex_rootfs "ArchLinux.sqsh" "${rootfs_file}"
+  write_fex_config_defaults "${legacy_config_dst}/Config.json" "ArchLinux.sqsh"
+  write_fex_config_defaults "${config_dst}/Config.json" "ArchLinux.sqsh"
 fi
 
-if command -v FEXServer >/dev/null 2>&1; then
-  FEXServer --persistent=3600 >/dev/null 2>&1 || true
-fi
+stop_fex_server
+start_fex_server
 
 install_steam_tool
 seed_fex_steam_app_configs
 
-if ! FEX /bin/uname -m >/dev/null 2>&1; then
+fex_test_output="$(FEX /bin/uname -m 2>&1)" || {
   echo "FEX RootFS is installed, but FEX could not start an x86_64 process." >&2
+  printf '%s\n' "${fex_test_output}" >&2
+  echo "Check that squashfuse is installed and the user session can mount FUSE filesystems." >&2
+  exit 1
+}
+
+if [[ "${fex_test_output}" != *x86_64* ]]; then
+  echo "FEX RootFS is installed, but FEX could not start an x86_64 process." >&2
+  printf '%s\n' "${fex_test_output}" >&2
   echo "Check that squashfuse is installed and the user session can mount FUSE filesystems." >&2
   exit 1
 fi

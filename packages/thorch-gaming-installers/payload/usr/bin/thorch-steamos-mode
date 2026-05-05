@@ -3,27 +3,29 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: thorch-steamos-mode start|stop|restart|status|enable|disable
+usage: thorch-steamos-mode start|stop|restart|status|is-running|enable|disable|move-windows-bottom
 
-SteamOS mode keeps Plasma/KWin as the real two-screen session, then runs the
-Steam Deck UI inside nested gamescope on the configured Steam output.
+SteamOS mode keeps Plasma/KWin as the real two-screen session, then runs Steam
+inside nested gamescope on the configured Steam output.
 EOF
   exit 2
 }
 
 cmd="${1:-start}"
 case "${cmd}" in
-  start|stop|restart|status|enable|disable|run) ;;
+  start|stop|restart|status|is-running|enable|disable|run|move-windows-bottom) ;;
   *) usage ;;
 esac
 
 uid="$(id -u)"
 steam_output="${THORCH_STEAMOS_STEAM_OUTPUT:-DSI-2}"
+control_output="${THORCH_STEAMOS_CONTROL_OUTPUT:-DSI-1}"
 width="${THORCH_STEAMOS_WIDTH:-1920}"
 height="${THORCH_STEAMOS_HEIGHT:-1080}"
 refresh="${THORCH_STEAMOS_REFRESH:-120}"
 backend="${THORCH_STEAMOS_GAMESCOPE_BACKEND:-nested}"
-steam_branch="${THORCH_STEAMOS_STEAM_BRANCH:-steamdeck_publicbeta}"
+steam_mode="${THORCH_STEAMOS_STEAM_MODE:-bigpicture}"
+steam_branch="${THORCH_STEAMOS_STEAM_BRANCH:-steamdeck_stable}"
 state_home="${XDG_STATE_HOME:-${HOME}/.local/state}"
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
 log_dir="${state_home}/thorch"
@@ -253,6 +255,10 @@ unload_kwin_mode_script() {
 }
 
 ensure_launcher() {
+  if command -v thorch-install-fex >/dev/null 2>&1; then
+    thorch-install-fex
+  fi
+
   if [[ -x "${launcher}" ]]; then
     return 0
   fi
@@ -305,7 +311,7 @@ run_mode() {
       XDG_SESSION_TYPE="${XDG_SESSION_TYPE}" \
       LANG="${LANG}" \
       LC_ALL="${LC_ALL}" \
-      THORCH_STEAM_MODE=deck \
+      THORCH_STEAM_MODE="${steam_mode}" \
       THORCH_STEAM_USE_GAMESCOPE=1 \
       THORCH_STEAM_GAMESCOPE_WIDTH="${width}" \
       THORCH_STEAM_GAMESCOPE_HEIGHT="${height}" \
@@ -363,6 +369,7 @@ start_mode() {
     THORCH_STEAMOS_HEIGHT="${height}" \
     THORCH_STEAMOS_REFRESH="${refresh}" \
     THORCH_STEAMOS_GAMESCOPE_BACKEND="${backend}" \
+    THORCH_STEAMOS_STEAM_MODE="${steam_mode}" \
     THORCH_STEAMOS_STEAM_BRANCH="${steam_branch}" \
     /usr/bin/thorch-steamos-mode run >>"${log_file}" 2>&1 < /dev/null &
   echo "$!" > "${pid_file}"
@@ -399,6 +406,123 @@ stop_mode() {
   echo "Stopped SteamOS mode."
 }
 
+move_windows_bottom() {
+  local control_output_json move_script
+
+  ensure_session_env
+  command -v qdbus6 >/dev/null 2>&1 || {
+    echo "qdbus6 is missing; cannot ask KWin to move windows." >&2
+    return 1
+  }
+  [[ -S "${runtime_dir}/bus" ]] || {
+    echo "KWin session bus is not available." >&2
+    return 1
+  }
+
+  control_output_json="$(json_string "${control_output}")"
+  move_script="${runtime_dir}/thorch-move-windows-bottom-kwin.js"
+  install -d -m 0700 "${runtime_dir}"
+  cat > "${move_script}" <<EOF
+"use strict";
+
+const controlOutputName = ${control_output_json};
+
+function textValue(value) {
+    if (value === undefined || value === null) {
+        return "";
+    }
+    try {
+        return value.toString();
+    } catch (e) {
+        return "";
+    }
+}
+
+function outputName(output) {
+    return textValue(output && output.name);
+}
+
+function controlOutput() {
+    const outputLists = [
+        workspace.screens || [],
+        workspace.screenOrder || []
+    ];
+    for (const screens of outputLists) {
+        for (const output of screens) {
+            if (outputName(output) === controlOutputName) {
+                return output;
+            }
+        }
+    }
+    return null;
+}
+
+function isSteamModeWindow(window) {
+    if (!window || !(window.normalWindow || window.dialog)) {
+        return false;
+    }
+
+    const identity = [
+        window.resourceClass,
+        window.resourceName,
+        window.windowClass,
+        window.desktopFileName,
+        window.windowRole
+    ].map(textValue).join(" ").toLowerCase();
+
+    if (identity.indexOf("steam") !== -1) {
+        return true;
+    }
+
+    const full = (identity + " " + [
+        window.caption,
+        window.captionNormal
+    ].map(textValue).join(" ")).toLowerCase();
+
+    return full.indexOf("gamescope") !== -1;
+}
+
+function shouldMoveWindow(window) {
+    return window &&
+           (window.normalWindow || window.dialog) &&
+           !isSteamModeWindow(window);
+}
+
+function moveWindow(window, output) {
+    if (!shouldMoveWindow(window)) {
+        return;
+    }
+
+    const wasFullScreen = !!window.fullScreen;
+    try {
+        window.fullScreen = false;
+    } catch (e) {
+    }
+    try {
+        workspace.sendClientToScreen(window, output);
+    } catch (e) {
+        console.info("thorch-steamos-mode: could not move window to control output: " + e);
+    }
+    try {
+        window.fullScreen = wasFullScreen;
+    } catch (e) {
+    }
+}
+
+const output = controlOutput();
+if (!output) {
+    console.info("thorch-steamos-mode: control output not found: " + controlOutputName);
+} else {
+    workspace.windowList().forEach(window => moveWindow(window, output));
+}
+EOF
+
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript thorch-move-windows-bottom >/dev/null 2>&1 || true
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${move_script}" thorch-move-windows-bottom >/dev/null
+  qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null
+  echo "Moved non-Steam windows to ${control_output}."
+}
+
 status_mode() {
   if running; then
     echo "SteamOS mode is running."
@@ -412,6 +536,14 @@ status_mode() {
     echo "Autostart is enabled."
   else
     echo "Autostart is disabled."
+  fi
+}
+
+is_running_mode() {
+  if running; then
+    echo "running"
+  else
+    echo "stopped"
   fi
 }
 
@@ -448,6 +580,9 @@ case "${cmd}" in
   status)
     status_mode
     ;;
+  is-running)
+    is_running_mode
+    ;;
   run)
     run_mode
     ;;
@@ -456,5 +591,8 @@ case "${cmd}" in
     ;;
   disable)
     disable_autostart
+    ;;
+  move-windows-bottom)
+    move_windows_bottom
     ;;
 esac

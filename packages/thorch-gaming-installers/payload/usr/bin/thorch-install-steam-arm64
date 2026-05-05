@@ -21,8 +21,8 @@ done
 
 cat <<'EOF'
 This installer does not ship Steam. It installs a launcher that downloads
-Valve's Linux ARM64 public beta client into the launcher's user's home directory
-the first time it runs.
+Valve's Linux ARM64 client into the launcher's user's home directory the first
+time it runs.
 
 You are responsible for complying with Valve's Steam license terms.
 EOF
@@ -66,7 +66,7 @@ proton_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 proton_dir="${steam_root}/steamapps/common/${proton_name}"
 mode="${THORCH_STEAM_MODE:-bigpicture}"
 steam_branch="${THORCH_STEAM_BRANCH:-}"
-deck_branch="${THORCH_STEAM_DECK_BRANCH:-steamdeck_publicbeta}"
+deck_branch="${THORCH_STEAM_DECK_BRANCH:-steamdeck_stable}"
 use_gamescope="${THORCH_STEAM_USE_GAMESCOPE:-0}"
 gamescope_width="${THORCH_STEAM_GAMESCOPE_WIDTH:-1920}"
 gamescope_height="${THORCH_STEAM_GAMESCOPE_HEIGHT:-1080}"
@@ -151,9 +151,8 @@ ensure_fex_server() {
   command -v FEXServer >/dev/null 2>&1 || return 0
   ensure_fex_config
 
-  if pgrep -u "$(id -u)" -x FEXServer >/dev/null 2>&1; then
-    return 0
-  fi
+  pkill -u "$(id -u)" -x FEXServer >/dev/null 2>&1 || true
+  sleep 1
 
   setsid FEXServer --persistent=3600 >/dev/null 2>&1 &
   sleep 1
@@ -162,33 +161,61 @@ ensure_fex_server() {
   fi
 }
 
-ensure_fex_config() {
-  local config_dir config_file
+ensure_canonical_fex_rootfs() {
+  local rootfs_name rootfs_path target
 
-  config_dir="${HOME}/.config/fex-emu"
-  config_file="${config_dir}/Config.json"
-  mkdir -p "${config_dir}"
+  IFS=$'\t' read -r rootfs_path rootfs_name < <(resolve_fex_rootfs) || return 1
+  [[ -n "${rootfs_name}" && -n "${rootfs_path}" ]] || return 1
 
-  if [[ ! -f "${config_file}" && -f /usr/config/fex-emu/Config.json ]]; then
-    cp -f /usr/config/fex-emu/Config.json "${config_file}"
-  elif [[ ! -f "${config_file}" && -f /usr/share/thorch/fex-emu/Config.json ]]; then
-    cp -f /usr/share/thorch/fex-emu/Config.json "${config_file}"
+  mkdir -p "${HOME}/.fex-emu/RootFS"
+  target="${HOME}/.fex-emu/RootFS/${rootfs_name}"
+  if [[ "${rootfs_path}" != "${target}" ]]; then
+    if [[ -L "${target}" || -f "${target}" ]]; then
+      rm -f "${target}"
+    elif [[ ! -d "${target}" ]]; then
+      ln -sfnT "${rootfs_path}" "${target}"
+    fi
   fi
-  [[ -f "${config_file}" ]] || return 0
 
-  python - "${config_file}" <<'PY'
+  printf '%s\t%s\n' "${rootfs_path}" "${rootfs_name}"
+}
+
+ensure_fex_config() {
+  local config_dir config_file rootfs_name rootfs_path
+
+  rootfs_name=""
+  rootfs_path=""
+  IFS=$'\t' read -r rootfs_path rootfs_name < <(ensure_canonical_fex_rootfs) || true
+
+  for config_dir in "${HOME}/.fex-emu" "${HOME}/.config/fex-emu"; do
+    config_file="${config_dir}/Config.json"
+    mkdir -p "${config_dir}"
+
+    if [[ ! -f "${config_file}" && -f /usr/config/fex-emu/Config.json ]]; then
+      cp -f /usr/config/fex-emu/Config.json "${config_file}"
+    elif [[ ! -f "${config_file}" && -f /usr/share/thorch/fex-emu/Config.json ]]; then
+      cp -f /usr/share/thorch/fex-emu/Config.json "${config_file}"
+    fi
+
+    python - "${config_file}" "${rootfs_name}" <<'PY'
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1])
+rootfs_name = sys.argv[2]
 template = pathlib.Path("/usr/config/fex-emu/Config.json")
 if not template.exists():
     template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
 try:
-    data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 except json.JSONDecodeError:
     data = {}
+if not data:
+    try:
+        data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
+    except json.JSONDecodeError:
+        data = {}
 config = data.setdefault("Config", {})
 config.update({
     "ServerSocketPath": "",
@@ -200,6 +227,8 @@ config.update({
     "SilentLog": "1",
     "OutputLog": "server",
 })
+if rootfs_name:
+    config["RootFS"] = rootfs_name
 data["ThunksDB"] = {
     "GL": 1,
     "Vulkan": 1,
@@ -210,6 +239,7 @@ data["ThunksDB"] = {
 }
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
+  done
 }
 
 install_fex_steam_tool() {
@@ -308,7 +338,7 @@ PY
 resolve_fex_rootfs() {
   local rootfs_dir
 
-  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.local/share/fex-emu/RootFS" "${HOME}/.fex-emu/RootFS"; do
+  for rootfs_dir in "${FEX_ROOTFS_DIR:-}" "${HOME}/.fex-emu/RootFS" "${HOME}/.local/share/fex-emu/RootFS"; do
     [[ -n "${rootfs_dir}" ]] || continue
     if [[ -d "${rootfs_dir}/ArchLinux" ]]; then
       printf '%s\t%s\n' "${rootfs_dir}/ArchLinux" "ArchLinux"
@@ -424,7 +454,7 @@ install_steamos_compat_stubs() {
 set -euo pipefail
 
 branch_file="${STEAM_BASE_FOLDER:-${HOME}/.local/share/Steam}/package/beta"
-branch="steamdeck_publicbeta"
+branch="steamdeck_stable"
 if [[ -r "${branch_file}" ]]; then
   branch="$(tr -d '\r\n' < "${branch_file}")"
 fi
@@ -441,7 +471,84 @@ case "${1:-}" in
     ;;
 esac
 EOF
-  chmod 755 "${support_bin_dir}/steamos-select-branch"
+  cat > "${support_bin_dir}/steamos-update" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -x /usr/bin/steamos-update ]]; then
+  exec /usr/bin/steamos-update "$@"
+fi
+
+for arg in "$@"; do
+  if [[ "${arg}" == "--supports-duplicate-detection" ]]; then
+    echo "This helper supports the duplicate detection option." >&2
+    exit 0
+  fi
+done
+
+case "${1:-status}" in
+  -h|--help|help)
+    echo "usage: steamos-update [check|status|download|apply]"
+    ;;
+  check|status|list|list-updates)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit 7
+    ;;
+  download|update|apply|install|reboot|cleanup)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit 7
+    ;;
+  --beta|-d|--enable-duplicate-detection)
+    echo "No SteamOS system update is available on Thorch." >&2
+    exit 7
+    ;;
+  *)
+    echo "SteamOS update command '${1:-status}' is not used on Thorch; no update is available." >&2
+    exit 7
+    ;;
+esac
+EOF
+
+  cat > "${support_bin_dir}/jupiter-biosupdate" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -x /usr/bin/jupiter-biosupdate ]]; then
+  exec /usr/bin/jupiter-biosupdate "$@"
+fi
+
+case "${1:-check}" in
+  -h|--help|help)
+    echo "usage: jupiter-biosupdate [check|update|apply]"
+    ;;
+  check|status|list)
+    echo "No Steam Deck firmware update is available on Thorch." >&2
+    ;;
+  update|apply|install)
+    echo "Skipping Steam Deck firmware update on Thorch." >&2
+    ;;
+  *)
+    echo "Steam Deck firmware command '${1:-check}' is not used on Thorch; treating as complete." >&2
+    ;;
+esac
+EOF
+
+  cat > "${support_bin_dir}/set-timezone" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -x /usr/bin/set-timezone ]]; then
+  exec /usr/bin/set-timezone "$@"
+fi
+
+echo "Timezone helper is not installed system-wide; leaving Thorch timezone unchanged."
+EOF
+
+  chmod 755 \
+    "${support_bin_dir}/steamos-select-branch" \
+    "${support_bin_dir}/steamos-update" \
+    "${support_bin_dir}/jupiter-biosupdate" \
+    "${support_bin_dir}/set-timezone"
 }
 
 gamescope_supports_option() {
@@ -571,7 +678,8 @@ if [[ -n "${runtime_lib_dir}" ]]; then
 fi
 
 if [[ ! -d "${steam_root}/steamrtarm64" ]]; then
-  manifest="$(curl -fsSL "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64" | strings)"
+  manifest_url="${THORCH_STEAM_MANIFEST_URL:-https://client-update.fastly.steamstatic.com/steam_client_${steam_branch}_linuxarm64}"
+  manifest="$(curl -fsSL "${manifest_url}" | strings)"
   target_file="$(printf '%s\n' "${manifest}" | grep -Eo 'bins_linuxarm64_linuxarm64\.zip\.[^"]+' | grep -v '\.vz\.' | head -n1)"
   [[ -n "${target_file}" ]] || { echo "Could not find ARM64 Steam zip in Valve manifest" >&2; exit 1; }
   wget -c -t 5 -O "${steam_root}/linuxarm64.zip" "https://client-update.steamstatic.com/${target_file}"
@@ -671,7 +779,7 @@ cat > "${app_dir}/thorch-steam-arm64.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Steam ARM64
-Comment=Launch native ARM64 Steam beta in Big Picture
+Comment=Launch native ARM64 Steam in Big Picture
 Exec=${bin_dir}/thorch-start-steam-arm64
 Icon=steam
 Terminal=false
@@ -682,7 +790,7 @@ cat > "${app_dir}/thorch-steam-arm64-gamescope.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Steam ARM64 Gamescope
-Comment=Launch native ARM64 Steam beta through gamescope
+Comment=Launch native ARM64 Steam through gamescope
 Exec=${bin_dir}/thorch-start-steam-arm64-gamescope
 Icon=steam
 Terminal=false
@@ -693,7 +801,7 @@ cat > "${app_dir}/thorch-steam-arm64-deck.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Steam ARM64 Deck UI
-Comment=Launch native ARM64 Steam beta in Deck UI mode
+Comment=Launch native ARM64 Steam in Deck UI mode
 Exec=${bin_dir}/thorch-start-steam-arm64-deck
 Icon=steam
 Terminal=false
