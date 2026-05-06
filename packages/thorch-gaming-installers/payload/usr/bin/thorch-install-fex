@@ -6,7 +6,7 @@ if ! command -v FEX >/dev/null 2>&1; then
 FEX is required but is not installed.
 
 Install the Thorch package first:
-  pacman -S thorch-fex-bin
+  pacman -S --needed --noconfirm thorch-fex-bin
 EOF
   exit 1
 fi

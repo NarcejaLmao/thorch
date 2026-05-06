@@ -23,17 +23,17 @@ install_root_packages() {
 
   echo "Installing optional system packages: ${packages[*]}"
   if [[ "${EUID}" -eq 0 ]]; then
-    pacman -S --needed "${packages[@]}"
+    pacman -S --needed --noconfirm "${packages[@]}"
   elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo pacman -S --needed "${packages[@]}"
+    sudo pacman -S --needed --noconfirm "${packages[@]}"
   elif command -v pkexec >/dev/null 2>&1; then
-    pkexec pacman -S --needed "${packages[@]}"
+    pkexec pacman -S --needed --noconfirm "${packages[@]}"
   else
     cat >&2 <<EOF
 Could not install optional system packages automatically.
 
 Run this later as root:
-  pacman -S --needed ${packages[*]}
+  pacman -S --needed --noconfirm ${packages[*]}
 EOF
   fi
 }
