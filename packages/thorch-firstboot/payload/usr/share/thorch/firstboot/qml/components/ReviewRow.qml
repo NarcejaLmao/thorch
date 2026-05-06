@@ -14,14 +14,14 @@ RowLayout {
     Label {
         text: root.label
         color: "#89a0aa"
-        font.pixelSize: 18
+        font.pixelSize: 16
         Layout.preferredWidth: 110
     }
 
     Label {
         text: root.value
         color: "#f6fafc"
-        font.pixelSize: 20
+        font.pixelSize: 18
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }

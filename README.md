@@ -197,17 +197,19 @@ thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mango
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
-Wi-Fi, SD/live-vs-install intent, default mode, user/password setup, theme
-selection, Steam/Waydroid setup when selected, and safe in-window SD
-expansion/internal install actions.
+Wi-Fi, SD-vs-internal install intent, default mode, user/password setup, theme
+selection, Steam/Waydroid setup when selected, and safe in-window automatic SD
+expansion/internal install actions. A footer Skip action is available from every
+page to mark firstboot complete and leave the setup flow if the user gets stuck
+or wants to configure things later.
 
 `thorch-inputplumber` installs InputPlumber's upstream rootfs contents and
 overlays only the Thor input maps. The image builder enables its service only
 when that package/unit is present, so custom package sets can omit it.
 
-After first boot from a larger SD card, choose the SD expansion option in the
-firstboot flow to grow the booted root partition and ext4 filesystem to fill the
-card. The expander only operates on the mounted `/` device and accepts either
+After first boot from a larger SD card, the firstboot flow grows the booted root
+partition and ext4 filesystem to fill the card unless you choose internal
+storage. The expander only operates on the mounted `/` device and accepts either
 removable media or the expected two-partition Thorch SD layout.
 
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:

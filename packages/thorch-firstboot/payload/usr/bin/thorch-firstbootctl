@@ -115,7 +115,7 @@ def validate_payload(payload):
     password = string_field(payload, "password")
     mode = string_field(payload, "mode", "desktop")
     theme = string_field(payload, "theme", "thorch-oled")
-    install_choice = string_field(payload, "installChoice", "live-sd")
+    install_choice = string_field(payload, "installChoice", "expand-sd")
     internal_data_loss_accepted = bool_field(payload, "internalDataLossAccepted")
     install_waydroid = bool_field(payload, "installWaydroid")
 
@@ -132,6 +132,8 @@ def validate_payload(payload):
 
     if install_choice not in VALID_INSTALL_CHOICES:
         fail(f"Unsupported install choice: {install_choice}")
+    if install_choice == "live-sd":
+        install_choice = "expand-sd"
 
     if "\n" in password:
         fail("Passwords must not contain newlines.")
@@ -293,11 +295,7 @@ def update_phase(phase, done=False):
 def next_action(settings):
     if settings["install_choice"] == "install-internal":
         return "install-internal"
-    if settings["install_choice"] == "expand-sd":
-        return "expand-sd"
-    if settings.get("install_waydroid"):
-        return "waydroid-setup"
-    return ""
+    return "expand-sd"
 
 
 def apply_json():
@@ -311,14 +309,14 @@ def apply_json():
     action = next_action(settings)
     if action == "install-internal":
         phase = "internal-install-ready"
-    elif settings.get("install_waydroid") and action == "expand-sd":
+    elif action == "expand-sd":
         phase = "expand-sd-ready"
     elif settings.get("install_waydroid"):
         phase = "waydroid-setup-ready"
     else:
         phase = "complete"
 
-    save_setup_state(settings, phase=phase, done=not settings.get("install_waydroid") and action != "install-internal")
+    save_setup_state(settings, phase=phase, done=action not in {"install-internal", "expand-sd"} and not settings.get("install_waydroid"))
 
     message = "Setup is complete. Reboot when you're ready to start Thorch."
     if action == "install-internal":
@@ -327,7 +325,7 @@ def apply_json():
         if settings.get("install_waydroid"):
             message = "Your choices are saved. Use the rest of the SD card next, then install Android app support."
         else:
-            message = "Setup is complete. You can use the rest of the SD card next."
+            message = "Your choices are saved. The SD card will expand to use all available space next."
     elif action == "waydroid-setup":
         message = "Your choices are saved. Android app support will install next."
 

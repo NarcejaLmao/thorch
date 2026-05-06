@@ -26,7 +26,7 @@ SetupPage {
                 ? qsTr("Finish setup to launch Steam on the top screen. The selected environment will drive the bottom screen.")
                 : (page.flow.secondStage ? qsTr("Finish setup to start using Thorch.") : ""))
         color: "#f6fafc"
-        font.pixelSize: 20
+        font.pixelSize: 18
         wrapMode: Text.WordWrap
         Layout.maximumWidth: page.pageMaxWidth
         Layout.fillWidth: true
@@ -36,7 +36,7 @@ SetupPage {
         visible: page.flow.secondStage && page.flow.wantsSteamSetup()
         text: qsTr("Steam will take over the top screen while the selected environment drives the bottom screen below.")
         color: "#89a0aa"
-        font.pixelSize: 17
+        font.pixelSize: 16
         wrapMode: Text.WordWrap
         Layout.maximumWidth: page.pageMaxWidth
         Layout.fillWidth: true
@@ -74,7 +74,7 @@ SetupPage {
         Label {
             text: page.flow.postActionProgressMessage
             color: "#89a0aa"
-            font.pixelSize: 16
+            font.pixelSize: 15
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -142,7 +142,7 @@ SetupPage {
         visible: page.flow.postActionFailed && page.flow.postActionOutput.length > 0
         text: page.flow.postActionOutput
         color: "#b8c7ce"
-        font.pixelSize: 14
+        font.pixelSize: 13
         wrapMode: Text.WrapAnywhere
         Layout.maximumWidth: page.pageMaxWidth
         Layout.fillWidth: true

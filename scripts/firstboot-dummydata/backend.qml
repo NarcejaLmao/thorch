@@ -50,10 +50,10 @@ Item {
                 "mode": config.mode,
                 "theme": config.theme,
                 "installChoice": "expand-sd",
-                "phase": config.installWaydroid ? "expand-sd-ready" : "complete",
+                "phase": "expand-sd-ready",
                 "installWaydroid": config.installWaydroid
             };
-            applyFinished(true, "Mock: setup saved. You can use the rest of the SD card next.", "expand-sd");
+            applyFinished(true, "Mock: setup saved. The SD card will expand next.", "expand-sd");
             return;
         }
         if (config.installWaydroid) {
@@ -77,6 +77,12 @@ Item {
 
     function connectWifi(ssid, password) {
         wifiConnectFinished(true, "Mock: connected to " + ssid + ".");
+    }
+
+    function skipFirstboot() {
+        done = true;
+        postActionStarted(true, "Mock: skipping first boot setup.");
+        postActionFinished(true, "Mock: first boot setup was skipped.", "");
     }
 
     function launchPostAction(action) {
@@ -111,6 +117,12 @@ Item {
         }
         if (action === "expand-sd") {
             postActionStarted(true, "Mock: using the rest of the SD card.");
+            if (initialState.installWaydroid && !initialState.waydroidSetupDone) {
+                initialState.phase = "waydroid-setup-ready";
+            } else {
+                initialState.phase = "complete";
+                done = true;
+            }
             postActionFinished(true, "Mock: the SD card is ready to use its full space.", "Mock: growpart + resize2fs complete.");
             return;
         }

@@ -9,20 +9,14 @@ SetupPage {
     required property int optionMaxWidth
 
     title: qsTr("Choose Where Thorch Runs")
-    description: qsTr("Keep using this SD card, use the rest of the card for storage, or move Thorch onto the device's internal storage.")
+    description: qsTr("Run Thorch from this SD card using all available space, or move Thorch onto the device's internal storage.")
 
     ColumnLayout {
         spacing: 14
         Layout.maximumWidth: page.optionMaxWidth
 
         ChoiceRow {
-            text: qsTr("Keep using the SD card")
-            checked: page.flow.installChoice === "live-sd"
-            onClicked: page.flow.installChoice = "live-sd"
-        }
-
-        ChoiceRow {
-            text: qsTr("Use the full SD card")
+            text: qsTr("Run from this SD card")
             checked: page.flow.installChoice === "expand-sd"
             onClicked: page.flow.installChoice = "expand-sd"
         }

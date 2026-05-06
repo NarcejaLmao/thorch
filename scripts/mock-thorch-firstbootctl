@@ -57,7 +57,9 @@ def emit_progress(progress, message, output=""):
 
 def apply_json():
     payload = read_payload()
-    install_choice = payload.get("installChoice", "live-sd")
+    install_choice = payload.get("installChoice", "expand-sd")
+    if install_choice == "live-sd":
+        install_choice = "expand-sd"
     if install_choice == "install-internal" and not payload.get("internalDataLossAccepted"):
         emit(False, "Mock: internal data-loss warning was not accepted.", code=1)
 
@@ -74,13 +76,9 @@ def apply_json():
         write_state(state, done=False)
         emit(True, "Mock: choices saved. Installing to internal storage next.", nextAction="install-internal")
     if install_choice == "expand-sd":
-        state["phase"] = "expand-sd-ready" if state["installWaydroid"] else "complete"
-        if state["installWaydroid"]:
-            write_state(state, done=False)
-        else:
-            state["completedAt"] = now()
-            write_state(state, done=True)
-        emit(True, "Mock: setup complete. You can use the rest of the SD card next.", nextAction="expand-sd")
+        state["phase"] = "expand-sd-ready"
+        write_state(state, done=False)
+        emit(True, "Mock: setup saved. The SD card will expand next.", nextAction="expand-sd")
 
     if state["installWaydroid"]:
         state["phase"] = "waydroid-setup-ready"
@@ -146,6 +144,10 @@ def expand_sd_json():
     if state.get("installWaydroid") and not state.get("waydroidSetupDone"):
         state["phase"] = "waydroid-setup-ready"
         write_state(state, done=False)
+    else:
+        state["phase"] = "complete"
+        state["completedAt"] = now()
+        write_state(state, done=True)
     emit(True, "Mock: the SD card is ready to use its full space.", output="Mock growpart + resize2fs complete.")
 
 

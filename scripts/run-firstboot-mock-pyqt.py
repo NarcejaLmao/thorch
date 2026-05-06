@@ -151,6 +151,22 @@ class Backend(QObject):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    @pyqtSlot()
+    def skipFirstboot(self):
+        self.postActionStarted.emit(True, "Mock: skipping first boot setup.")
+
+        def worker():
+            ok, message, result = self._run_helper("finish-json")
+            self._done = os.path.exists(DONE_FILE)
+            self._state = load_state()
+            if ok:
+                message = "Mock: first boot setup was skipped."
+            self.postActionFinished.emit(ok, message, result.get("output", ""))
+            if ok:
+                self.closeRequested.emit()
+
+        threading.Thread(target=worker, daemon=True).start()
+
     @pyqtSlot(str)
     def launchPostAction(self, action):
         labels = {

@@ -15,7 +15,7 @@ ColumnLayout {
     Label {
         text: root.message
         color: "#ffb84d"
-        font.pixelSize: 17
+        font.pixelSize: 16
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
@@ -23,7 +23,7 @@ ColumnLayout {
     CheckBox {
         text: root.checkboxText
         checked: root.checked
-        font.pixelSize: 18
+        font.pixelSize: 17
         palette.windowText: "#f6fafc"
         palette.text: "#f6fafc"
         palette.buttonText: "#f6fafc"

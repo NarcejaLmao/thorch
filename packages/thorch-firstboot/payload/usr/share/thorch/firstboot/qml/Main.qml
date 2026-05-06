@@ -90,6 +90,13 @@ ApplicationWindow {
                 onClicked: flow.page -= 1
             }
 
+            Button {
+                text: qsTr("Skip")
+                icon.name: "dialog-cancel"
+                enabled: !flow.applying && !flow.postActionRunning
+                onClicked: flow.skipFirstboot()
+            }
+
             Label {
                 text: flow.resultMessage
                 color: flow.applied ? "#45de80" : "#ffb84d"

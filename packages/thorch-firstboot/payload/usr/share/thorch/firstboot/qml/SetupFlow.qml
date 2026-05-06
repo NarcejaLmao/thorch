@@ -16,7 +16,7 @@ QtObject {
     property string wifiConnectedSsid: ""
     property bool wifiScanning: false
     property bool wifiConnecting: false
-    property string installChoice: "live-sd"
+    property string installChoice: "expand-sd"
     property string modeChoice: "desktop"
     property string steamCompanion: "mobile"
     property bool installWaydroid: false
@@ -104,7 +104,7 @@ QtObject {
         if (choice === "expand-sd") {
             return qsTr("Use the full SD card");
         }
-        return qsTr("Keep using the SD card");
+        return qsTr("Use the full SD card");
     }
 
     function modeChoiceLabel(mode) {
@@ -185,6 +185,15 @@ QtObject {
         backend.launchPostAction(action);
     }
 
+    function skipFirstboot() {
+        if (applying || postActionRunning) {
+            return;
+        }
+        pendingAutoPostAction = "";
+        activePostAction = "skip-firstboot";
+        backend.skipFirstboot();
+    }
+
     function scheduleInternalInstall() {
         if (!autoInternalInstallStarted && nextAction === "install-internal") {
             scheduleAutomaticPostAction("install-internal");
@@ -202,7 +211,7 @@ QtObject {
             themeChoice = state.theme;
         }
         if (state.installChoice) {
-            installChoice = state.installChoice;
+            installChoice = state.installChoice === "live-sd" ? "expand-sd" : state.installChoice;
         }
         if (state.internalDataLossAccepted === true) {
             internalDataLossAccepted = true;
@@ -406,6 +415,12 @@ QtObject {
                 }
             }
             if (ok && (finishedAction === "finish-firstboot" || finishedAction === "finish-and-launch-steam")) {
+                flow.secondStage = false;
+                flow.removeSdStage = false;
+            }
+            if (ok && finishedAction === "skip-firstboot") {
+                flow.applied = true;
+                flow.nextAction = "";
                 flow.secondStage = false;
                 flow.removeSdStage = false;
             }

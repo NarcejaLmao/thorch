@@ -47,7 +47,13 @@ def load_state_file():
 
 def has_resume_state(state):
     phase = state.get("phase", "")
-    return phase in {"internal-install-ready", "internal-install-complete-remove-sd"}
+    return phase in {
+        "internal-install-ready",
+        "internal-install-complete-remove-sd",
+        "expand-sd-ready",
+        "waydroid-setup-ready",
+        "waydroid-setup-complete",
+    }
 
 
 class Backend(QObject):
@@ -263,6 +269,22 @@ class Backend(QObject):
             payload = json.dumps({"ssid": ssid, "password": password}, separators=(",", ":"))
             ok, message, _result = self._run_helper("wifi-connect-json", payload=payload)
             self.wifiConnectFinished.emit(ok, message)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @Slot()
+    def skipFirstboot(self):
+        self.postActionStarted.emit(True, "Skipping first boot setup.")
+
+        def worker():
+            ok, message, result = self._run_helper("finish-json")
+            self._done = os.path.exists(DONE_FILE)
+            self._state = self._load_state()
+            if ok:
+                message = "First boot setup was skipped."
+            self.postActionFinished.emit(ok, message, result.get("output", ""))
+            if ok:
+                self.closeRequested.emit()
 
         threading.Thread(target=worker, daemon=True).start()
 

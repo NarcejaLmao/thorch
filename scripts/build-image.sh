@@ -283,6 +283,11 @@ if [[ "${THORCH_DEFAULT_SESSION}" == "plasma" || "${THORCH_DEFAULT_SESSION}" == 
   sed -i 's/^Session=.*/Session=plasma.desktop/' "${rootfs_dir}/etc/sddm.conf.d/10-thorch.conf"
 fi
 rsync -a "${rootfs_dir}/etc/skel/." "${rootfs_dir}/home/${THORCH_USER}/"
+rm -f \
+  "${rootfs_dir}/etc/skel/Desktop/thorch-expand-root.desktop" \
+  "${rootfs_dir}/etc/skel/Desktop/thorch-install-waydroid.desktop" \
+  "${rootfs_dir}/home/${THORCH_USER}/Desktop/thorch-expand-root.desktop" \
+  "${rootfs_dir}/home/${THORCH_USER}/Desktop/thorch-install-waydroid.desktop"
 run_rootfs "chown -R ${THORCH_USER}:${THORCH_USER} /home/${THORCH_USER}"
 run_rootfs "systemctl disable systemd-networkd.service systemd-networkd-wait-online.service systemd-networkd.socket systemd-networkd-varlink.socket systemd-networkd-varlink-metrics.socket systemd-networkd-resolve-hook.socket >/dev/null 2>&1 || true"
 run_rootfs "systemctl mask systemd-networkd.service systemd-networkd-wait-online.service systemd-networkd.socket systemd-networkd-varlink.socket systemd-networkd-varlink-metrics.socket systemd-networkd-resolve-hook.socket >/dev/null 2>&1 || true"

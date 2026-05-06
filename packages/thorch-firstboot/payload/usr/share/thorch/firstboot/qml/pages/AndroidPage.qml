@@ -12,7 +12,7 @@ SetupPage {
     title: qsTr("Android Apps")
     description: page.flow.hasNetwork()
         ? qsTr("Install Waydroid during setup to run Android apps from Plasma.")
-        : qsTr("Connect to Wi-Fi first to install Waydroid during setup, or install it later from the desktop.")
+        : qsTr("Connect to Wi-Fi first to install Waydroid during setup, or install it later from the app launcher.")
 
     ColumnLayout {
         spacing: 14
@@ -41,9 +41,9 @@ SetupPage {
     Label {
         text: page.flow.hasNetwork()
             ? qsTr("The installer downloads Waydroid and vanilla Android images after your account is created.")
-            : qsTr("A desktop launcher will stay available so you can install Waydroid after connecting to Wi-Fi.")
+            : qsTr("You can install Waydroid later from the app launcher after connecting to Wi-Fi.")
         color: "#89a0aa"
-        font.pixelSize: 17
+        font.pixelSize: 16
         wrapMode: Text.WordWrap
         Layout.maximumWidth: page.optionMaxWidth
         Layout.fillWidth: true

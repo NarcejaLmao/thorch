@@ -36,7 +36,7 @@ SetupPage {
     Label {
         text: page.flow.wifiMessage
         color: "#89a0aa"
-        font.pixelSize: 16
+        font.pixelSize: 15
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
@@ -61,7 +61,7 @@ SetupPage {
         placeholderText: page.flow.selectedWifiSsid() ? qsTr("Wi-Fi password for %1").arg(page.flow.selectedWifiSsid()) : qsTr("Wi-Fi password")
         echoMode: TextInput.Password
         text: page.flow.wifiPassword
-        font.pixelSize: 22
+        font.pixelSize: 20
         enabled: page.flow.selectedWifiSsid().length > 0 && !page.flow.wifiConnecting
         Layout.maximumWidth: page.optionMaxWidth
         Layout.fillWidth: true
