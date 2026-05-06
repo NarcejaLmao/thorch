@@ -20,7 +20,8 @@ rm -f /run/thorch-usb-dnsmasq.pid
 dnsmasq \
   --conf-file=/dev/null \
   --pid-file=/run/thorch-usb-dnsmasq.pid \
-  --bind-dynamic \
-  --except-interface=lo \
+  --bind-interfaces \
+  --interface=usb0 \
+  --listen-address=10.66.0.1 \
   --dhcp-authoritative \
   --dhcp-range=interface:usb0,10.66.0.10,10.66.0.30,255.255.255.0,1h

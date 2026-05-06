@@ -1,0 +1,16 @@
+[Unit]
+Description=Set Thorch Thor RGB LEDs from the average desktop color
+Documentation=man:spectacle(1)
+After=display-manager.service thorch-rgb.service
+Conflicts=thorch-rgb-battery.service
+ConditionPathExists=/sys/class/leds
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/thorch-rgb-ambient --loop
+ExecStopPost=-/usr/bin/systemctl start thorch-rgb-battery.service
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "KPackage/GenericQML",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Thorch contributors"
+            }
+        ],
+        "Description": "Toggle SSH from Plasma Mobile quick settings",
+        "Icon": "network-server",
+        "Id": "org.thorch.quicksetting.ssh",
+        "License": "GPL-2.0-or-later",
+        "Name": "SSH",
+        "Website": "https://github.com/ROCKNIX/distribution"
+    }
+}

@@ -7,6 +7,7 @@ usage:
   thorch-rgb status
   thorch-rgb off
   thorch-rgb set R G B
+  thorch-rgb apply R G B
   thorch-rgb battery
   thorch-rgb apply-config
   thorch-rgb poweroff
@@ -477,6 +478,18 @@ case "${cmd}" in
     require_leds
     save_config static "$2" "$3" "$4"
     try_systemctl stop thorch-rgb-battery.service
+    apply_rgb "$2" "$3" "$4"
+    ;;
+  apply)
+    [[ "$#" -eq 4 ]] || {
+      usage
+      exit 2
+    }
+    load_config
+    require_byte "red" "$2"
+    require_byte "green" "$3"
+    require_byte "blue" "$4"
+    require_leds
     apply_rgb "$2" "$3" "$4"
     ;;
   battery)

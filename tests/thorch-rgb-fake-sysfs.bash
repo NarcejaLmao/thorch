@@ -89,6 +89,12 @@ assert_channel r 0
 assert_channel g 153
 assert_channel b 0
 
+run_rgb apply 1 2 3
+assert_config_mode battery
+assert_channel r 1
+assert_channel g 2
+assert_channel b 3
+
 printf '8\n' > "${tmp}/sys/class/power_supply/battery/capacity"
 printf 'Discharging\n' > "${tmp}/sys/class/power_supply/battery/status"
 run_rgb apply-config

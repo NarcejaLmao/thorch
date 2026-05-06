@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply Thorch PWM fan control profile
+After=systemd-udevd.service
+ConditionPathExistsGlob=/sys/class/hwmon/hwmon*/pwm1
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/thorch-fancontrol daemon
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

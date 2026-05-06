@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "KPackage/GenericQML",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Thorch contributors"
+            }
+        ],
+        "Description": "Toggle Thor RGB lighting from Plasma Mobile quick settings",
+        "Icon": "preferences-color",
+        "Id": "org.thorch.quicksetting.rgb",
+        "License": "GPL-2.0-or-later",
+        "Name": "RGB",
+        "Website": "https://github.com/ROCKNIX/distribution"
+    }
+}

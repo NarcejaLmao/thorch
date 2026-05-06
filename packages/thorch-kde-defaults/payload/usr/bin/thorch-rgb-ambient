@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import pathlib
+import pwd
+import shutil
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def warn(message):
+    print(f"thorch-rgb-ambient: {message}", file=sys.stderr, flush=True)
+
+
+def fail(message, code=1):
+    warn(message)
+    raise SystemExit(code)
+
+
+def env_int(name, default, minimum=None, maximum=None):
+    value = os.environ.get(name)
+    if value in (None, ""):
+        return default
+    try:
+        number = int(value)
+    except ValueError:
+        fail(f"{name} must be an integer")
+    if minimum is not None and number < minimum:
+        fail(f"{name} must be at least {minimum}")
+    if maximum is not None and number > maximum:
+        fail(f"{name} must be no more than {maximum}")
+    return number
+
+
+def env_float(name, default, minimum=None, maximum=None):
+    value = os.environ.get(name)
+    if value in (None, ""):
+        return default
+    try:
+        number = float(value)
+    except ValueError:
+        fail(f"{name} must be a number")
+    if minimum is not None and number < minimum:
+        fail(f"{name} must be at least {minimum}")
+    if maximum is not None and number > maximum:
+        fail(f"{name} must be no more than {maximum}")
+    return number
+
+
+def paeth_predictor(left, above, upper_left):
+    estimate = left + above - upper_left
+    distance_left = abs(estimate - left)
+    distance_above = abs(estimate - above)
+    distance_upper_left = abs(estimate - upper_left)
+    if distance_left <= distance_above and distance_left <= distance_upper_left:
+        return left
+    if distance_above <= distance_upper_left:
+        return above
+    return upper_left
+
+
+def unfilter_png_row(row, previous, bytes_per_pixel, filter_type):
+    if filter_type == 0:
+        return
+    if filter_type == 1:
+        for index, value in enumerate(row):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            row[index] = (value + left) & 0xff
+        return
+    if filter_type == 2:
+        for index, value in enumerate(row):
+            row[index] = (value + previous[index]) & 0xff
+        return
+    if filter_type == 3:
+        for index, value in enumerate(row):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            above = previous[index]
+            row[index] = (value + ((left + above) // 2)) & 0xff
+        return
+    if filter_type == 4:
+        for index, value in enumerate(row):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            above = previous[index]
+            upper_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            row[index] = (value + paeth_predictor(left, above, upper_left)) & 0xff
+        return
+    raise ValueError(f"unsupported PNG row filter: {filter_type}")
+
+
+def rounded_average(totals, count):
+    if count < 1:
+        raise ValueError("image has no pixels")
+    return tuple((channel + count // 2) // count for channel in totals)
+
+
+def average_png(data, sample_stride):
+    if not data.startswith(PNG_SIGNATURE):
+        raise ValueError("not a PNG image")
+
+    position = len(PNG_SIGNATURE)
+    width = None
+    height = None
+    bit_depth = None
+    color_type = None
+    interlace = None
+    idat = bytearray()
+
+    while position + 8 <= len(data):
+        chunk_length = struct.unpack(">I", data[position:position + 4])[0]
+        chunk_type = data[position + 4:position + 8]
+        position += 8
+        chunk_data = data[position:position + chunk_length]
+        position += chunk_length + 4
+
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
+            if compression != 0 or filter_method != 0:
+                raise ValueError("unsupported PNG compression or filter method")
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    if width is None or height is None:
+        raise ValueError("PNG is missing IHDR")
+    if bit_depth != 8:
+        raise ValueError("only 8-bit PNG screenshots are supported")
+    if interlace != 0:
+        raise ValueError("interlaced PNG screenshots are not supported")
+
+    channels_by_type = {
+        0: 1,
+        2: 3,
+        4: 2,
+        6: 4,
+    }
+    channels = channels_by_type.get(color_type)
+    if channels is None:
+        raise ValueError(f"unsupported PNG color type: {color_type}")
+
+    raw = zlib.decompress(bytes(idat))
+    row_length = width * channels
+    previous = bytearray(row_length)
+    position = 0
+    totals = [0, 0, 0]
+    count = 0
+
+    for y in range(height):
+        if position >= len(raw):
+            raise ValueError("truncated PNG pixel data")
+        filter_type = raw[position]
+        position += 1
+        row = bytearray(raw[position:position + row_length])
+        position += row_length
+        if len(row) != row_length:
+            raise ValueError("truncated PNG scanline")
+        unfilter_png_row(row, previous, channels, filter_type)
+
+        if y % sample_stride == 0:
+            for x in range(0, width, sample_stride):
+                offset = x * channels
+                if color_type == 0:
+                    red = green = blue = row[offset]
+                elif color_type == 4:
+                    red = green = blue = row[offset]
+                else:
+                    red, green, blue = row[offset], row[offset + 1], row[offset + 2]
+                totals[0] += red
+                totals[1] += green
+                totals[2] += blue
+                count += 1
+
+        previous = row
+
+    return rounded_average(totals, count)
+
+
+def read_ppm_token(data, position):
+    length = len(data)
+    while position < length:
+        value = data[position]
+        if value == ord("#"):
+            while position < length and data[position] not in (10, 13):
+                position += 1
+        elif chr(value).isspace():
+            position += 1
+        else:
+            break
+    start = position
+    while position < length and not chr(data[position]).isspace():
+        position += 1
+    return data[start:position].decode("ascii"), position
+
+
+def average_ppm(data, sample_stride):
+    token, position = read_ppm_token(data, 0)
+    if token != "P6":
+        raise ValueError("not a binary PPM image")
+    width_text, position = read_ppm_token(data, position)
+    height_text, position = read_ppm_token(data, position)
+    max_value_text, position = read_ppm_token(data, position)
+    width = int(width_text)
+    height = int(height_text)
+    max_value = int(max_value_text)
+    if max_value != 255:
+        raise ValueError("only 8-bit PPM screenshots are supported")
+    if position < len(data) and chr(data[position]).isspace():
+        position += 1
+
+    pixels = data[position:]
+    row_length = width * 3
+    totals = [0, 0, 0]
+    count = 0
+
+    for y in range(0, height, sample_stride):
+        row_start = y * row_length
+        for x in range(0, width, sample_stride):
+            offset = row_start + x * 3
+            if offset + 2 >= len(pixels):
+                raise ValueError("truncated PPM pixel data")
+            totals[0] += pixels[offset]
+            totals[1] += pixels[offset + 1]
+            totals[2] += pixels[offset + 2]
+            count += 1
+
+    return rounded_average(totals, count)
+
+
+def average_image(path, sample_stride):
+    data = pathlib.Path(path).read_bytes()
+    if data.startswith(PNG_SIGNATURE):
+        return average_png(data, sample_stride)
+    if data.startswith(b"P6"):
+        return average_ppm(data, sample_stride)
+    raise ValueError("unsupported screenshot format")
+
+
+def show_session_properties(session_id):
+    command = [
+        "loginctl",
+        "show-session",
+        session_id,
+        "--property=Active",
+        "--property=Class",
+        "--property=Name",
+        "--property=Remote",
+        "--property=State",
+        "--property=Type",
+        "--property=User",
+    ]
+    proc = subprocess.run(command, text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        return {}
+    properties = {}
+    for line in proc.stdout.splitlines():
+        key, _, value = line.partition("=")
+        properties[key] = value
+    return properties
+
+
+def wayland_display_for(runtime_dir):
+    runtime = pathlib.Path(runtime_dir)
+    if not runtime.is_dir():
+        return ""
+    for path in sorted(runtime.glob("wayland-*")):
+        if path.name.endswith(".lock"):
+            continue
+        try:
+            if path.is_socket():
+                return path.name
+        except OSError:
+            continue
+    return ""
+
+
+def entry_for_active_session():
+    requested_user = os.environ.get("THORCH_RGB_AMBIENT_USER")
+    if requested_user:
+        return pwd.getpwnam(requested_user)
+
+    if os.geteuid() != 0:
+        return pwd.getpwuid(os.getuid())
+
+    if not shutil.which("loginctl"):
+        return None
+
+    proc = subprocess.run(["loginctl", "list-sessions", "--no-legend"], text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        return None
+
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        properties = show_session_properties(parts[0])
+        if properties.get("Active") != "yes":
+            continue
+        if properties.get("Class") not in ("", "user"):
+            continue
+        if properties.get("Remote") == "yes":
+            continue
+
+        user_id = properties.get("User")
+        if not user_id:
+            continue
+        try:
+            entry = pwd.getpwuid(int(user_id))
+        except (KeyError, ValueError):
+            continue
+
+        runtime = f"/run/user/{entry.pw_uid}"
+        session_type = properties.get("Type")
+        if session_type in ("wayland", "x11") or wayland_display_for(runtime):
+            return entry
+
+    return None
+
+
+def session_environment(entry):
+    runtime = os.environ.get("XDG_RUNTIME_DIR") if os.getuid() == entry.pw_uid else ""
+    if not runtime:
+        runtime = f"/run/user/{entry.pw_uid}"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": entry.pw_dir,
+            "LOGNAME": entry.pw_name,
+            "USER": entry.pw_name,
+            "XDG_RUNTIME_DIR": runtime,
+            "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus",
+        }
+    )
+
+    if not env.get("WAYLAND_DISPLAY"):
+        display = wayland_display_for(runtime)
+        if display:
+            env["WAYLAND_DISPLAY"] = display
+
+    return runtime, env
+
+
+def run_as_session_user(entry, env, command, timeout):
+    full_command = ["env"]
+    for key in ("HOME", "LOGNAME", "USER", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY", "DISPLAY", "PATH"):
+        value = env.get(key)
+        if value:
+            full_command.append(f"{key}={value}")
+    full_command.extend(command)
+
+    if os.geteuid() == 0 and entry.pw_uid != 0:
+        full_command = ["runuser", "-u", entry.pw_name, "--"] + full_command
+
+    return subprocess.run(full_command, text=True, capture_output=True, timeout=timeout, check=False)
+
+
+def capture_screenshot(args, entry):
+    runtime, env = session_environment(entry)
+    runtime_path = pathlib.Path(runtime)
+    capture_dir = runtime_path if runtime_path.is_dir() else pathlib.Path("/tmp")
+    output = capture_dir / f"thorch-rgb-ambient-{os.getpid()}-{time.monotonic_ns()}.png"
+    command = [args.spectacle, "-b", "-n", "-f", "-o", str(output)]
+
+    try:
+        proc = run_as_session_user(entry, env, command, args.timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"screenshot timed out after {args.timeout:g}s") from exc
+
+    if proc.returncode != 0:
+        output_text = "\n".join(part.strip() for part in (proc.stdout, proc.stderr) if part.strip())
+        raise RuntimeError(output_text or "screenshot command failed")
+    if not output.exists():
+        raise RuntimeError("screenshot command did not create an output image")
+
+    return output
+
+
+def read_screen_average(args, entry):
+    output = capture_screenshot(args, entry)
+    try:
+        return average_image(output, args.sample_stride)
+    finally:
+        try:
+            output.unlink()
+        except OSError:
+            pass
+
+
+def smooth_color(previous, current, factor):
+    if previous is None:
+        return current
+    return tuple(int(round(previous[index] * (1.0 - factor) + current[index] * factor)) for index in range(3))
+
+
+def significant_change(previous, current, threshold):
+    if previous is None:
+        return True
+    return max(abs(current[index] - previous[index]) for index in range(3)) >= threshold
+
+
+def apply_color(args, color):
+    if args.print_only:
+        print(f"{color[0]} {color[1]} {color[2]}", flush=True)
+        return
+
+    command = [args.rgb_cmd, "apply", str(color[0]), str(color[1]), str(color[2])]
+    proc = subprocess.run(command, text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        output_text = "\n".join(part.strip() for part in (proc.stdout, proc.stderr) if part.strip())
+        raise RuntimeError(output_text or "RGB apply command failed")
+
+
+def tick(args, smoothed, applied):
+    entry = entry_for_active_session()
+    if entry is None:
+        raise RuntimeError("no active graphical user session found")
+
+    current = read_screen_average(args, entry)
+    smoothed = smooth_color(smoothed, current, args.smoothing)
+    if significant_change(applied, smoothed, args.min_change):
+        apply_color(args, smoothed)
+        applied = smoothed
+    return smoothed, applied
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Set Thor RGB LEDs to the average color of the desktop.")
+    parser.add_argument("--loop", action="store_true", help="keep sampling until the service is stopped")
+    parser.add_argument("--once", action="store_true", help="sample once and exit")
+    parser.add_argument("--print", dest="print_only", action="store_true", help="print the sampled RGB instead of applying it")
+    parser.add_argument("--interval", type=float, default=env_float("THORCH_RGB_AMBIENT_INTERVAL", 3.0, 0.5, 3600.0))
+    parser.add_argument("--sample-stride", type=int, default=env_int("THORCH_RGB_AMBIENT_SAMPLE_STRIDE", 12, 1, 256))
+    parser.add_argument("--min-change", type=int, default=env_int("THORCH_RGB_AMBIENT_MIN_CHANGE", 4, 0, 255))
+    parser.add_argument("--smoothing", type=float, default=env_float("THORCH_RGB_AMBIENT_SMOOTHING", 0.45, 0.0, 1.0))
+    parser.add_argument("--timeout", type=float, default=env_float("THORCH_RGB_AMBIENT_TIMEOUT", 10.0, 1.0, 120.0))
+    parser.add_argument("--rgb-cmd", default=os.environ.get("THORCH_RGB_AMBIENT_RGB", "/usr/bin/thorch-rgb"))
+    parser.add_argument("--spectacle", default=os.environ.get("THORCH_RGB_AMBIENT_SPECTACLE", "spectacle"))
+    args = parser.parse_args()
+    if args.once and args.loop:
+        fail("--once and --loop are mutually exclusive", 2)
+    return args
+
+
+def main():
+    args = parse_args()
+    smoothed = None
+    applied = None
+
+    if not args.loop:
+        tick(args, smoothed, applied)
+        return
+
+    while True:
+        try:
+            smoothed, applied = tick(args, smoothed, applied)
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            warn(str(exc))
+        time.sleep(args.interval)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Temperature profiles and SM8550 sensor filtering are adapted from ROCKNIX
+# commit 524d0c9941452da4d29a635b31de11cb2bf82312.
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  thorch-fancontrol status
+  thorch-fancontrol once
+  thorch-fancontrol daemon
+EOF
+}
+
+log_tag=thorch-fancontrol
+config="${THORCH_FAN_CONFIG:-/etc/thorch/fancontrol.conf}"
+sysfs_root="${THORCH_FAN_SYSFS_ROOT:-/sys}"
+thermal_root="${THORCH_FAN_THERMAL_ROOT:-${sysfs_root}/devices/virtual/thermal}"
+hwmon_root="${THORCH_FAN_HWMON_ROOT:-${sysfs_root}/class/hwmon}"
+
+profile="moderate"
+poll_seconds="3"
+wait_seconds="30"
+fan_pwm_path=""
+fan_pwm_enable_path=""
+temp_sensor_words=""
+temp_sensors=()
+
+t1=55000
+t2=60000
+t3=65000
+t4=70000
+t5=75000
+t6=80000
+max_temp=85000
+speed1=51
+speed2=77
+speed3=102
+speed4=119
+speed5=153
+speed6=204
+max_speed=255
+last_bucket=""
+
+die() {
+  printf 'thorch-fancontrol: %s\n' "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf 'thorch-fancontrol: %s\n' "$*" >&2
+}
+
+log() {
+  if command -v systemd-cat >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+    systemd-cat -t "${log_tag}" -p info printf '%s\n' "$*" 2>/dev/null || printf '%s\n' "$*" >&2
+  else
+    printf '%s\n' "$*" >&2
+  fi
+}
+
+is_uint() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+require_uint_range() {
+  local name="$1" value="$2" min="$3" max="$4"
+
+  if ! is_uint "${value}" || ((value < min || value > max)); then
+    die "${name} must be an integer from ${min} to ${max}"
+  fi
+}
+
+read_first_line() {
+  local path="$1" value=""
+
+  if [[ -r "${path}" ]]; then
+    IFS= read -r value < "${path}" || true
+  fi
+  printf '%s\n' "${value}"
+}
+
+load_config() {
+  if [[ -r "${config}" ]]; then
+    # shellcheck source=/dev/null
+    source "${config}"
+  fi
+
+  profile="${THORCH_FAN_PROFILE:-${profile}}"
+  poll_seconds="${THORCH_FAN_POLL_SECONDS:-${poll_seconds}}"
+  wait_seconds="${THORCH_FAN_WAIT_SECONDS:-${wait_seconds}}"
+  fan_pwm_path="${THORCH_FAN_PWM_PATH:-${DEVICE_PWM_FAN:-}}"
+  temp_sensor_words="${THORCH_FAN_TEMP_SENSORS:-${THORCH_DEVICE_TEMP_SENSOR:-${DEVICE_TEMP_SENSOR:-}}}"
+
+  case "${profile}" in
+    auto|quiet|moderate|aggressive|custom) ;;
+    *) die "THORCH_FAN_PROFILE must be auto, quiet, moderate, aggressive, or custom" ;;
+  esac
+
+  require_uint_range "THORCH_FAN_POLL_SECONDS" "${poll_seconds}" 1 3600
+  require_uint_range "THORCH_FAN_WAIT_SECONDS" "${wait_seconds}" 0 300
+}
+
+set_profile_thresholds() {
+  case "${profile}" in
+    aggressive)
+      t1=50000; t2=55000; t3=60000; t4=65000; t5=70000; t6=75000; max_temp=80000
+      ;;
+    quiet)
+      t1=60000; t2=65000; t3=70000; t4=75000; t5=80000; t6=85000; max_temp=95000
+      ;;
+    auto|moderate)
+      t1=55000; t2=60000; t3=65000; t4=70000; t5=75000; t6=80000; max_temp=85000
+      ;;
+    custom)
+      t1="${THORCH_FAN_T1:-${T1:-55000}}"
+      t2="${THORCH_FAN_T2:-${T2:-60000}}"
+      t3="${THORCH_FAN_T3:-${T3:-65000}}"
+      t4="${THORCH_FAN_T4:-${T4:-70000}}"
+      t5="${THORCH_FAN_T5:-${T5:-75000}}"
+      t6="${THORCH_FAN_T6:-${T6:-80000}}"
+      max_temp="${THORCH_FAN_MAX_TEMP:-${MAXTEMP:-85000}}"
+      ;;
+  esac
+
+  speed1="${THORCH_FAN_SPEED1:-${speed1}}"
+  speed2="${THORCH_FAN_SPEED2:-${speed2}}"
+  speed3="${THORCH_FAN_SPEED3:-${speed3}}"
+  speed4="${THORCH_FAN_SPEED4:-${speed4}}"
+  speed5="${THORCH_FAN_SPEED5:-${speed5}}"
+  speed6="${THORCH_FAN_SPEED6:-${speed6}}"
+  max_speed="${THORCH_FAN_MAX_SPEED:-${max_speed}}"
+
+  local name
+  for name in t1 t2 t3 t4 t5 t6 max_temp speed1 speed2 speed3 speed4 speed5 speed6 max_speed; do
+    require_uint_range "${name}" "${!name}" 0 1000000
+  done
+
+  ((t1 < t2 && t2 < t3 && t3 < t4 && t4 < t5 && t5 < t6 && t6 < max_temp)) ||
+    die "fan temperature thresholds must increase from T1 through THORCH_FAN_MAX_TEMP"
+
+  for name in speed1 speed2 speed3 speed4 speed5 speed6 max_speed; do
+    require_uint_range "${name}" "${!name}" 0 255
+  done
+}
+
+detect_pwm_path() {
+  local candidates=() path preferred=()
+
+  shopt -s nullglob
+  candidates=("${hwmon_root}"/hwmon*/pwm1)
+  shopt -u nullglob
+
+  for path in "${candidates[@]}"; do
+    [[ -e "${path}" ]] || continue
+    local hwmon_dir name
+    hwmon_dir="${path%/pwm1}"
+    name="$(read_first_line "${hwmon_dir}/name")"
+    if [[ "${name}" == *fan* || "${name}" == *pwm* || -e "${hwmon_dir}/pwm1_enable" ]]; then
+      preferred+=("${path}")
+    fi
+  done
+
+  if ((${#preferred[@]} > 0)); then
+    printf '%s\n' "${preferred[0]}"
+  elif ((${#candidates[@]} > 0)); then
+    printf '%s\n' "${candidates[0]}"
+  else
+    return 1
+  fi
+}
+
+resolve_pwm_path() {
+  if [[ -z "${fan_pwm_path}" ]]; then
+    fan_pwm_path="$(detect_pwm_path)" || return 1
+  fi
+
+  [[ -e "${fan_pwm_path}" ]] || return 1
+  fan_pwm_enable_path="${fan_pwm_path}_enable"
+}
+
+detect_temp_sensors() {
+  local zones=() zone type sensors=()
+
+  shopt -s nullglob
+  zones=("${thermal_root}"/thermal_zone*)
+  shopt -u nullglob
+
+  for zone in "${zones[@]}"; do
+    [[ -r "${zone}/temp" ]] || continue
+    type="$(read_first_line "${zone}/type")"
+    case "${type}" in
+      pm8550-thermal|pm8550b-thermal|pm8550ve-thermal|battery)
+        continue
+        ;;
+    esac
+    sensors+=("${zone}/temp")
+  done
+
+  ((${#sensors[@]} > 0)) || return 1
+  printf '%s\n' "${sensors[@]}"
+}
+
+resolve_temp_sensors() {
+  temp_sensors=()
+  if [[ -n "${temp_sensor_words}" ]]; then
+    read -r -a temp_sensors <<< "${temp_sensor_words}"
+  else
+    mapfile -t temp_sensors < <(detect_temp_sensors)
+  fi
+
+  local readable=() sensor
+  for sensor in "${temp_sensors[@]}"; do
+    [[ -r "${sensor}" ]] && readable+=("${sensor}")
+  done
+  temp_sensors=("${readable[@]}")
+
+  ((${#temp_sensors[@]} > 0))
+}
+
+prepare_runtime() {
+  resolve_pwm_path || return 1
+  resolve_temp_sensors || return 1
+  set_profile_thresholds
+}
+
+prepare_runtime_with_wait() {
+  local waited=0
+
+  until prepare_runtime; do
+    ((waited >= wait_seconds)) && return 1
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+set_control() {
+  local value="$1"
+
+  if [[ -e "${fan_pwm_enable_path}" ]]; then
+    printf '%s\n' "${value}" > "${fan_pwm_enable_path}" || return 1
+  fi
+}
+
+write_pwm() {
+  local value="$1"
+
+  require_uint_range "fan PWM" "${value}" 0 255
+  printf '%s\n' "${value}" > "${fan_pwm_path}" || die "failed to write ${fan_pwm_path}"
+}
+
+read_average_temp() {
+  local total=0 count=0 sensor value
+
+  for sensor in "${temp_sensors[@]}"; do
+    value="$(read_first_line "${sensor}")"
+    [[ "${value}" =~ ^-?[0-9]+$ ]] || continue
+    total=$((total + value))
+    count=$((count + 1))
+  done
+
+  ((count > 0)) || return 1
+  printf '%d\n' $((total / count))
+}
+
+fan_speed_for_temp() {
+  local temp="$1" bucket=0 speed=0
+
+  if ((temp > max_temp)); then
+    bucket=7; speed="${max_speed}"
+  elif ((temp > t6)); then
+    bucket=6; speed="${speed6}"
+  elif ((temp > t5)); then
+    bucket=5; speed="${speed5}"
+  elif ((temp > t4)); then
+    bucket=4; speed="${speed4}"
+  elif ((temp > t3)); then
+    bucket=3; speed="${speed3}"
+  elif ((temp > t2)); then
+    bucket=2; speed="${speed2}"
+  elif ((temp > t1)); then
+    bucket=1; speed="${speed1}"
+  fi
+
+  printf '%s %s\n' "${bucket}" "${speed}"
+}
+
+apply_current_pwm() {
+  local force="${1:-0}" temp bucket speed
+
+  temp="$(read_average_temp)" || die "no readable fan temperature sensors"
+  read -r bucket speed < <(fan_speed_for_temp "${temp}")
+
+  if [[ "${force}" == "1" || "${bucket}" != "${last_bucket}" ]]; then
+    write_pwm "${speed}"
+    last_bucket="${bucket}"
+    log "temperature ${temp} mC, setting fan PWM ${speed}"
+  fi
+}
+
+print_status() {
+  local temp bucket speed enable_value
+
+  load_config
+  prepare_runtime || die "fan PWM or thermal sensors not available"
+  temp="$(read_average_temp)" || die "no readable fan temperature sensors"
+  read -r bucket speed < <(fan_speed_for_temp "${temp}")
+  enable_value="$(read_first_line "${fan_pwm_enable_path}")"
+
+  printf 'profile: %s\n' "${profile}"
+  printf 'pwm: %s\n' "${fan_pwm_path}"
+  if [[ -e "${fan_pwm_enable_path}" ]]; then
+    printf 'pwm_enable: %s\n' "${enable_value:-unknown}"
+  fi
+  printf 'temperature: %s\n' "${temp}"
+  printf 'target_pwm: %s\n' "${speed}"
+  printf 'sensors:\n'
+  printf '  %s\n' "${temp_sensors[@]}"
+}
+
+run_once() {
+  load_config
+  prepare_runtime || die "fan PWM or thermal sensors not available"
+  set_control 1 || die "failed to enable manual fan control"
+  apply_current_pwm 1
+}
+
+cleanup_daemon() {
+  set_control 0 >/dev/null 2>&1 || true
+}
+
+run_daemon() {
+  load_config
+  prepare_runtime_with_wait || die "fan PWM or thermal sensors not available"
+  set_control 1 || die "failed to enable manual fan control"
+  trap cleanup_daemon EXIT
+  trap 'exit 0' HUP INT QUIT ABRT TERM
+
+  log "starting ${profile} fan profile"
+  while true; do
+    apply_current_pwm
+    sleep "${poll_seconds}"
+  done
+}
+
+case "${1:-status}" in
+  status) print_status ;;
+  once) run_once ;;
+  daemon) run_daemon ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
