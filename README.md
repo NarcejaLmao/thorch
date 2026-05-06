@@ -215,6 +215,8 @@ removable media or the expected two-partition Thorch SD layout.
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
 
+RGB controls are documented in [docs/rgb.md](docs/rgb.md), including static
+colors, battery-status mode, brightness, and temporary color application.
 Ambient RGB mirroring is installed but left disabled for experiments. Start it
 with `sudo systemctl start thorch-rgb-ambient.service`; enable it only after it
 behaves well on the target hardware.
