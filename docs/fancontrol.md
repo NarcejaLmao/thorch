@@ -4,6 +4,10 @@ Thorch controls the Thor fan with `thorch-fancontrol`. The service reads
 temperatures from thermal sysfs sensors, chooses a PWM value from the configured
 profile, and writes that value to the fan PWM sysfs node.
 
+When multiple thermal sensors are readable, Thorch follows the hottest selected
+sensor by default. This reacts more like Android thermal policy than a broad
+sensor average, where idle or cooler zones can hide a hot CPU/GPU spot.
+
 For a quieter or more aggressive curve, start with the built-in profiles:
 
 ```bash
@@ -36,6 +40,7 @@ Example custom curve:
 ```bash
 THORCH_FAN_PROFILE=custom
 THORCH_FAN_POLL_SECONDS=3
+THORCH_FAN_SENSOR_MODE=max
 
 THORCH_FAN_T1=50000
 THORCH_FAN_T2=55000
@@ -75,7 +80,7 @@ Thresholds must increase from `THORCH_FAN_T1` through
 
 ## Testing
 
-Check the detected PWM path, selected sensors, current averaged temperature, and
+Check the detected PWM path, selected sensors, current control temperature, and
 target PWM:
 
 ```bash
@@ -112,8 +117,9 @@ THORCH_FAN_TEMP_SENSORS="/sys/devices/virtual/thermal/thermal_zone0/temp /sys/de
 ```
 
 `THORCH_FAN_TEMP_SENSORS` is a space-separated list. When more than one sensor
-is configured, Thorch averages the readable values before selecting the fan
-speed.
+is configured, `THORCH_FAN_SENSOR_MODE=max` uses the hottest readable value
+before selecting the fan speed. Set `THORCH_FAN_SENSOR_MODE=average` to restore
+the quieter ROCKNIX-style broad sensor average.
 
 ## Safety Notes
 

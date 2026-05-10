@@ -25,6 +25,7 @@ wait_seconds="30"
 fan_pwm_path=""
 fan_pwm_enable_path=""
 temp_sensor_words=""
+temp_sensor_mode="max"
 temp_sensors=()
 
 t1=55000
@@ -92,10 +93,15 @@ load_config() {
   wait_seconds="${THORCH_FAN_WAIT_SECONDS:-${wait_seconds}}"
   fan_pwm_path="${THORCH_FAN_PWM_PATH:-${DEVICE_PWM_FAN:-}}"
   temp_sensor_words="${THORCH_FAN_TEMP_SENSORS:-${THORCH_DEVICE_TEMP_SENSOR:-${DEVICE_TEMP_SENSOR:-}}}"
+  temp_sensor_mode="${THORCH_FAN_SENSOR_MODE:-${THORCH_FAN_TEMP_MODE:-${temp_sensor_mode}}}"
 
   case "${profile}" in
     auto|quiet|moderate|aggressive|custom) ;;
     *) die "THORCH_FAN_PROFILE must be auto, quiet, moderate, aggressive, or custom" ;;
+  esac
+  case "${temp_sensor_mode}" in
+    max|average) ;;
+    *) die "THORCH_FAN_SENSOR_MODE must be max or average" ;;
   esac
 
   require_uint_range "THORCH_FAN_POLL_SECONDS" "${poll_seconds}" 1 3600
@@ -207,7 +213,9 @@ resolve_temp_sensors() {
   if [[ -n "${temp_sensor_words}" ]]; then
     read -r -a temp_sensors <<< "${temp_sensor_words}"
   else
-    mapfile -t temp_sensors < <(detect_temp_sensors)
+    while IFS= read -r sensor; do
+      temp_sensors+=("${sensor}")
+    done < <(detect_temp_sensors)
   fi
 
   local readable=() sensor
@@ -250,18 +258,27 @@ write_pwm() {
   printf '%s\n' "${value}" > "${fan_pwm_path}" || die "failed to write ${fan_pwm_path}"
 }
 
-read_average_temp() {
-  local total=0 count=0 sensor value
+read_control_temp() {
+  local total=0 count=0 max_temp_value="" max_temp_sensor="" sensor value
 
   for sensor in "${temp_sensors[@]}"; do
     value="$(read_first_line "${sensor}")"
     [[ "${value}" =~ ^-?[0-9]+$ ]] || continue
-    total=$((total + value))
+    if [[ "${temp_sensor_mode}" == "average" ]]; then
+      total=$((total + value))
+    elif [[ -z "${max_temp_value}" ]] || ((value > max_temp_value)); then
+      max_temp_value="${value}"
+      max_temp_sensor="${sensor}"
+    fi
     count=$((count + 1))
   done
 
   ((count > 0)) || return 1
-  printf '%d\n' $((total / count))
+  if [[ "${temp_sensor_mode}" == "average" ]]; then
+    printf '%d average\n' $((total / count))
+  else
+    printf '%s %s\n' "${max_temp_value}" "${max_temp_sensor}"
+  fi
 }
 
 fan_speed_for_temp() {
@@ -287,9 +304,9 @@ fan_speed_for_temp() {
 }
 
 apply_current_pwm() {
-  local force="${1:-0}" temp bucket speed
+  local force="${1:-0}" temp temp_source bucket speed
 
-  temp="$(read_average_temp)" || die "no readable fan temperature sensors"
+  read -r temp temp_source < <(read_control_temp) || die "no readable fan temperature sensors"
   read -r bucket speed < <(fan_speed_for_temp "${temp}")
 
   if [[ "${force}" == "1" || "${bucket}" != "${last_bucket}" ]]; then
@@ -300,20 +317,22 @@ apply_current_pwm() {
 }
 
 print_status() {
-  local temp bucket speed enable_value
+  local temp temp_source bucket speed enable_value
 
   load_config
   prepare_runtime || die "fan PWM or thermal sensors not available"
-  temp="$(read_average_temp)" || die "no readable fan temperature sensors"
+  read -r temp temp_source < <(read_control_temp) || die "no readable fan temperature sensors"
   read -r bucket speed < <(fan_speed_for_temp "${temp}")
   enable_value="$(read_first_line "${fan_pwm_enable_path}")"
 
   printf 'profile: %s\n' "${profile}"
+  printf 'sensor_mode: %s\n' "${temp_sensor_mode}"
   printf 'pwm: %s\n' "${fan_pwm_path}"
   if [[ -e "${fan_pwm_enable_path}" ]]; then
     printf 'pwm_enable: %s\n' "${enable_value:-unknown}"
   fi
   printf 'temperature: %s\n' "${temp}"
+  printf 'temperature_source: %s\n' "${temp_source}"
   printf 'target_pwm: %s\n' "${speed}"
   printf 'sensors:\n'
   printf '  %s\n' "${temp_sensors[@]}"

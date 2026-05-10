@@ -36,11 +36,12 @@ make_zone() {
 }
 
 write_config() {
-  local profile="$1"
+  local profile="$1" sensor_mode="${2:-max}"
 
   cat > "${tmp}/fancontrol.conf" <<EOF
 THORCH_FAN_PROFILE=${profile}
 THORCH_FAN_POLL_SECONDS=1
+THORCH_FAN_SENSOR_MODE=${sensor_mode}
 EOF
 }
 
@@ -60,18 +61,23 @@ make_zone 3 battery 100000
 write_config moderate
 run_fan once >/dev/null
 assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1_enable" 1
-assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 153
+assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 204
 
 write_config quiet
 run_fan once >/dev/null
-assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 119
+assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 153
 
 write_config aggressive
 run_fan once >/dev/null
-assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 204
+assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 255
+
+write_config moderate average
+run_fan once >/dev/null
+assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 153
 
 cat > "${tmp}/fancontrol.conf" <<EOF
 THORCH_FAN_PROFILE=custom
+THORCH_FAN_SENSOR_MODE=max
 THORCH_FAN_TEMP_SENSORS="${tmp}/sys/devices/virtual/thermal/thermal_zone0/temp"
 THORCH_FAN_T1=50000
 THORCH_FAN_T2=60000
@@ -87,6 +93,7 @@ assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 123
 
 status_output="$(run_fan status)"
 grep -q '^profile: custom$' <<< "${status_output}" || fail "status did not report custom profile"
+grep -q '^sensor_mode: max$' <<< "${status_output}" || fail "status did not report sensor mode"
 grep -q '^target_pwm: 123$' <<< "${status_output}" || fail "status did not report target PWM"
 
 rm -rf "${tmp}/sys/class/hwmon"

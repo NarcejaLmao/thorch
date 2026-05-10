@@ -1,6 +1,6 @@
 # ROCKNIX-derived Qualcomm SM8550 handheld hints for Thorch.
-# These are Arch-safe exports adapted from ROCKNIX hardware quirks; the original
-# ROCKNIX autostart scripts are preserved under /usr/share/thorch/rocknix-quirks.
+# These are Arch-safe exports adapted from ROCKNIX hardware quirks; the
+# ROCKNIX autostart scripts are staged under /usr/share/thorch/rocknix-quirks.
 
 export DEVICE_HAS_TOUCHSCREEN="true"
 export DEVICE_NO_MAC="true"
@@ -12,7 +12,13 @@ export DEVICE_PLAYBACK_PATH_SPK="Speakers"
 export DEVICE_PLAYBACK_PATH_HP="HP"
 
 export THORCH_DEVICE_TEMP_SENSOR_EXCLUDES="pm8550-thermal pm8550b-thermal pm8550ve-thermal battery"
-export THORCH_CPU_FREQ_POLICIES="/sys/devices/system/cpu/cpufreq/policy0 /sys/devices/system/cpu/cpufreq/policy4 /sys/devices/system/cpu/cpufreq/policy7"
+THORCH_CPU_FREQ_POLICIES=""
+for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+  if [ -d "${policy}" ]; then
+    THORCH_CPU_FREQ_POLICIES="${THORCH_CPU_FREQ_POLICIES} ${policy}"
+  fi
+done
+export THORCH_CPU_FREQ_POLICIES="${THORCH_CPU_FREQ_POLICIES# }"
 export THORCH_GPU_FREQ_PATH="/sys/devices/platform/soc@0/3d00000.gpu/devfreq/3d00000.gpu"
 
 THORCH_DEVICE_TEMP_SENSOR=""

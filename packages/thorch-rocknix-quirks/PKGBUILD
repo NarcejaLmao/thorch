@@ -2,7 +2,7 @@
 
 pkgname=thorch-rocknix-quirks
 pkgver=1
-pkgrel=4
+pkgrel=5
 pkgdesc='ROCKNIX-derived SM8550 handheld quirks adapted for Thorch'
 arch=(any)
 url='https://github.com/ROCKNIX/distribution'
@@ -18,4 +18,22 @@ package() {
   cp -a . "${pkgdir}/"
   install -d "${pkgdir}/usr/share/thorch/rocknix-quirks/SM8550"
   cp -a "${rocknix_quirks}/." "${pkgdir}/usr/share/thorch/rocknix-quirks/SM8550/"
+
+  cat > "${pkgdir}/usr/share/thorch/rocknix-quirks/SM8550/010-governors" <<'EOF'
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2024 ROCKNIX (https://github.com/ROCKNIX)
+
+cpu_freq=""
+for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+  [ -d "${policy}" ] || continue
+  cpu_freq="${cpu_freq} \"${policy}\""
+done
+
+cat <<PROFILE >/storage/.config/profile.d/010-governors
+CPU_FREQ=(${cpu_freq# })
+GPU_FREQ=("/sys/devices/platform/soc@0/3d00000.gpu/devfreq/3d00000.gpu")
+PROFILE
+EOF
+  chmod 0755 "${pkgdir}/usr/share/thorch/rocknix-quirks/SM8550/010-governors"
 }
