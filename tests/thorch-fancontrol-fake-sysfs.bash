@@ -12,7 +12,7 @@ fail() {
 }
 
 run_fan() {
-  THORCH_FAN_CONFIG="${tmp}/fancontrol.conf" \
+  THORCH_HARDWARE_CONFIG="${tmp}/hardware.conf" \
   THORCH_FAN_SYSFS_ROOT="${tmp}/sys" \
     "${script}" "$@"
 }
@@ -38,7 +38,7 @@ make_zone() {
 write_config() {
   local profile="$1" sensor_mode="${2:-max}"
 
-  cat > "${tmp}/fancontrol.conf" <<EOF
+  cat > "${tmp}/hardware.conf" <<EOF
 THORCH_FAN_PROFILE=${profile}
 THORCH_FAN_POLL_SECONDS=1
 THORCH_FAN_SENSOR_MODE=${sensor_mode}
@@ -75,7 +75,7 @@ write_config moderate average
 run_fan once >/dev/null
 assert_file_value "${tmp}/sys/class/hwmon/hwmon3/pwm1" 153
 
-cat > "${tmp}/fancontrol.conf" <<EOF
+cat > "${tmp}/hardware.conf" <<EOF
 THORCH_FAN_PROFILE=custom
 THORCH_FAN_SENSOR_MODE=max
 THORCH_FAN_TEMP_SENSORS="${tmp}/sys/devices/virtual/thermal/thermal_zone0/temp"

@@ -57,6 +57,14 @@ abspath() {
   fi
 }
 
+nspawn_machine_name() {
+  local label="$1" path="$2" hash
+
+  label="${label//[^[:alnum:]._-]/-}"
+  hash="$(printf '%s' "$(abspath "${path}")" | cksum | awk '{print $1}')"
+  printf 'thorch-%s-%s\n' "${label}" "${hash}"
+}
+
 parse_size_bytes() {
   local size="$1"
   numfmt --from=iec "${size}"

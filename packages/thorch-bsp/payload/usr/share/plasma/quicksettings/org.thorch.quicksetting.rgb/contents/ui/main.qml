@@ -9,17 +9,29 @@ QS.QuickSetting {
     id: root
 
     text: i18n("RGB")
-    status: actionRunning ? (rgbRunning ? i18n("Turning RGB off") : i18n("Turning RGB on"))
-                          : (rgbRunning ? i18n("RGB is on") : i18n("RGB is off"))
+    status: actionRunning ? (rgbEnabled ? i18n("Turning RGB off") : i18n("Restoring RGB"))
+                          : idleStatus
     icon: "preferences-color"
-    enabled: rgbRunning
+    enabled: rgbEnabled
 
     property bool actionRunning: false
-    property bool rgbRunning: false
-    readonly property string helperCommand: "/usr/bin/thorch-quicksetting-toggle rgb"
+    property bool rgbEnabled: false
+    property string rgbMode: "off"
+    property string rgbStaticHex: "#0080FF"
+    readonly property string helperCommand: "thorch-quicksetting-toggle rgb"
+    readonly property string statusCommand: "thorch-hardwarectl status-json"
+    readonly property string idleStatus: {
+        if (rgbMode === "battery") {
+            return i18n("Battery status");
+        }
+        if (rgbMode === "static") {
+            return i18n("Static %1").arg(rgbStaticHex);
+        }
+        return i18n("Off");
+    }
 
     function refreshState() {
-        statusSource.connectSource(helperCommand + " status");
+        statusSource.connectSource(statusCommand);
     }
 
     function toggle() {
@@ -36,8 +48,17 @@ QS.QuickSetting {
 
         onNewData: (sourceName, data) => {
             disconnectSource(sourceName);
-            if (data.stdout !== undefined) {
-                root.rgbRunning = data.stdout.trim() === "on";
+            if (data.stdout !== undefined && data.stdout.trim().length > 0) {
+                try {
+                    const payload = JSON.parse(data.stdout.trim());
+                    root.rgbMode = payload.rgb_mode || "off";
+                    root.rgbEnabled = payload.rgb_enabled === true;
+                    root.rgbStaticHex = payload.rgb_static_hex || "#0080FF";
+                } catch (error) {
+                    root.rgbMode = "off";
+                    root.rgbEnabled = false;
+                    root.rgbStaticHex = "#0080FF";
+                }
             }
         }
     }

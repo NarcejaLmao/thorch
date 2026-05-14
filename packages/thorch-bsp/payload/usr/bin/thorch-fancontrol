@@ -14,7 +14,7 @@ EOF
 }
 
 log_tag=thorch-fancontrol
-config="${THORCH_FAN_CONFIG:-/etc/thorch/fancontrol.conf}"
+config="${THORCH_FAN_CONFIG:-${THORCH_HARDWARE_CONFIG:-/etc/thorch/hardware.conf}}"
 sysfs_root="${THORCH_FAN_SYSFS_ROOT:-/sys}"
 thermal_root="${THORCH_FAN_THERMAL_ROOT:-${sysfs_root}/devices/virtual/thermal}"
 hwmon_root="${THORCH_FAN_HWMON_ROOT:-${sysfs_root}/class/hwmon}"

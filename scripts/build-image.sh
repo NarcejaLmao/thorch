@@ -61,6 +61,7 @@ root_img="${build_dir}/root.ext4"
 image="${root}/${THORCH_OUTPUT_DIR}/thorch-arch-aarch64.img"
 repo_dir="${root}/${THORCH_LOCAL_REPO_DIR}"
 rootfs_tar="${cache_dir}/ArchLinuxARM-aarch64-latest.tar.gz"
+rootfs_machine="$(nspawn_machine_name image-rootfs "${rootfs_dir}")"
 read -r -a image_packages <<< "${THORCH_IMAGE_PACKAGES}"
 stock_kernel_firmware=(
   linux-aarch64
@@ -123,6 +124,7 @@ run_rootfs() {
   systemd-nspawn \
     --quiet \
     --pipe \
+    --machine="${rootfs_machine}" \
     --register=no \
     --directory="${rootfs_dir}" \
     /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"
@@ -133,6 +135,7 @@ run_rootfs_cmd() {
   systemd-nspawn \
     --quiet \
     --pipe \
+    --machine="${rootfs_machine}" \
     --register=no \
     --directory="${rootfs_dir}" \
     /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 "$@"
@@ -335,6 +338,7 @@ rootfs_services=(
   thorch-session-recovery.service
   thorch-inputd.service
   thorch-powerd.service
+  thorch-hw-defaults.service
   thorch-debug-report.service
 )
 if [[ -f "${rootfs_dir}/usr/lib/systemd/system/inputplumber.service" ||

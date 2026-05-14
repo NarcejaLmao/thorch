@@ -12,7 +12,7 @@ fail() {
 }
 
 run_rgb() {
-  THORCH_RGB_CONFIG="${tmp}/rgb.conf" \
+  THORCH_HARDWARE_CONFIG="${tmp}/hardware.conf" \
   THORCH_RGB_SYSFS_ROOT="${tmp}/sys" \
   THORCH_RGB_SKIP_SYSTEMD=1 \
     "${script}" "$@"
@@ -59,38 +59,38 @@ assert_channel() {
   shopt -u nullglob
 }
 
-assert_config_mode() {
-  local expected="$1"
-
-  grep -qx "THORCH_RGB_MODE=${expected}" "${tmp}/rgb.conf" || fail "config mode is not ${expected}"
-}
-
 make_leds
 make_battery 60 Discharging
+cat > "${tmp}/hardware.conf" <<'EOF'
+THORCH_RGB_MODE=battery
+THORCH_RGB_BRIGHTNESS=255
+THORCH_RGB_STATIC_R=0
+THORCH_RGB_STATIC_G=128
+THORCH_RGB_STATIC_B=255
+THORCH_RGB_POLL_SECONDS=15
+EOF
 
 status_output="$(run_rgb status)"
 grep -q '^backend: raw-htr3212$' <<< "${status_output}" || fail "status did not detect raw HTR3212 LEDs"
 
 run_rgb set 255 64 0
-assert_config_mode static
 assert_channel r 255
 assert_channel g 64
 assert_channel b 0
+grep -qx 'THORCH_RGB_MODE=battery' "${tmp}/hardware.conf" || fail "set should not rewrite config"
 
 run_rgb off
-assert_config_mode off
 assert_channel r 0
 assert_channel g 0
 assert_channel b 0
+grep -qx 'THORCH_RGB_MODE=battery' "${tmp}/hardware.conf" || fail "off should not rewrite config"
 
 run_rgb battery
-assert_config_mode battery
 assert_channel r 0
 assert_channel g 153
 assert_channel b 0
 
 run_rgb apply 1 2 3
-assert_config_mode battery
 assert_channel r 1
 assert_channel g 2
 assert_channel b 3

@@ -98,12 +98,45 @@ esac
 EOF
 chmod 755 "${tmp}/rgb"
 
+cat > "${tmp}/hardwarectl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+rgb="${THORCH_QUICKSETTING_RGB:?}"
+
+case "${1:-}" in
+  set)
+    case "${2:-}" in
+      rgb-mode)
+        case "${3:-}" in
+          off) "${rgb}" off ;;
+          battery) "${rgb}" battery ;;
+          static) exit 0 ;;
+          *) exit 2 ;;
+        esac
+        ;;
+      rgb-color)
+        "${rgb}" set "$3" "$4" "$5"
+        ;;
+      *)
+        exit 2
+        ;;
+    esac
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+EOF
+chmod 755 "${tmp}/hardwarectl"
+
 run_helper() {
   FAKE_SYSTEMCTL_STATE="${tmp}/systemctl-state" \
   FAKE_RGB_STATE="${tmp}/rgb-state" \
   THORCH_QUICKSETTING_SKIP_PKEXEC=1 \
   THORCH_QUICKSETTING_SYSTEMCTL="${tmp}/systemctl" \
   THORCH_QUICKSETTING_RGB="${tmp}/rgb" \
+  THORCH_QUICKSETTING_HARDWARECTL="${tmp}/hardwarectl" \
   THORCH_QUICKSETTING_STATE_DIR="${tmp}/quicksetting-state" \
     "${script}" "$@"
 }

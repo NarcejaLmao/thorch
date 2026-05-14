@@ -75,6 +75,7 @@ input_dir="${build_root}/thorch-input"
 work_dir="${build_root}/thorch-work"
 pkgdest="${build_root}/thorch-pkgdest"
 rootfs_tar="${cache_dir}/ArchLinuxARM-aarch64-latest.tar.gz"
+machine_name="$(nspawn_machine_name pkg-root "${build_root}")"
 stock_kernel_firmware=(
   linux-aarch64
   linux-firmware
@@ -384,6 +385,7 @@ run_chroot() {
   systemd-nspawn \
     --quiet \
     --pipe \
+    --machine="${machine_name}" \
     --register=no \
     --directory="${build_root}" \
     /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"

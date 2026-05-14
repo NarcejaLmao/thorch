@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply Thorch boot-time hardware defaults
+After=systemd-udevd.service
+ConditionPathExistsGlob=/sys/devices/system/cpu/cpufreq/policy*
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/thorch/hardware.conf
+ExecStart=/usr/bin/thorch-hw-defaults apply
+
+[Install]
+WantedBy=multi-user.target

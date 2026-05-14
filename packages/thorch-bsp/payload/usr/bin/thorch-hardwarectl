@@ -1,0 +1,490 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config="${THORCH_HARDWARE_CONFIG:-/etc/thorch/hardware.conf}"
+systemctl_cmd="${THORCH_HARDWARE_SYSTEMCTL:-systemctl}"
+rgb_cmd="${THORCH_HARDWARE_RGB:-/usr/bin/thorch-rgb}"
+hw_defaults_cmd="${THORCH_HARDWARE_DEFAULTS:-/usr/bin/thorch-hw-defaults}"
+kdialog_cmd="${THORCH_HARDWARE_KDIALOG:-kdialog}"
+legacy_dir="${THORCH_HARDWARE_LEGACY_DIR:-/etc/thorch}"
+
+cpu_boost="1"
+fan_profile="moderate"
+fan_sensor_mode="max"
+rgb_mode="battery"
+rgb_brightness="255"
+rgb_static_r="0"
+rgb_static_g="128"
+rgb_static_b="255"
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  thorch-hardwarectl status
+  thorch-hardwarectl status-json
+  thorch-hardwarectl migrate
+  thorch-hardwarectl set cpu-boost on|off
+  thorch-hardwarectl set fan-profile quiet|moderate|aggressive|custom
+  thorch-hardwarectl set fan-sensor-mode max|average
+  thorch-hardwarectl set fan-state PROFILE SENSOR_MODE
+  thorch-hardwarectl set rgb-mode off|battery|static
+  thorch-hardwarectl set rgb-brightness 0..255
+  thorch-hardwarectl set rgb-color R G B
+  thorch-hardwarectl set rgb-state MODE BRIGHTNESS R G B
+EOF
+  exit 2
+}
+
+die() {
+  printf 'thorch-hardwarectl: %s\n' "$*" >&2
+  exit 1
+}
+
+is_uint() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+require_byte() {
+  local name="$1" value="$2"
+  if ! is_uint "${value}" || ((value < 0 || value > 255)); then
+    die "${name} must be an integer from 0 to 255"
+  fi
+}
+
+load_config() {
+  if [[ -r "${config}" ]]; then
+    # shellcheck source=/dev/null
+    source "${config}"
+  fi
+
+  cpu_boost="${THORCH_CPU_BOOST:-${cpu_boost}}"
+  fan_profile="${THORCH_FAN_PROFILE:-${fan_profile}}"
+  fan_sensor_mode="${THORCH_FAN_SENSOR_MODE:-${fan_sensor_mode}}"
+  rgb_mode="${THORCH_RGB_MODE:-${rgb_mode}}"
+  rgb_brightness="${THORCH_RGB_BRIGHTNESS:-${rgb_brightness}}"
+  rgb_static_r="${THORCH_RGB_STATIC_R:-${rgb_static_r}}"
+  rgb_static_g="${THORCH_RGB_STATIC_G:-${rgb_static_g}}"
+  rgb_static_b="${THORCH_RGB_STATIC_B:-${rgb_static_b}}"
+}
+
+legacy_configs() {
+  printf '%s\n' \
+    "${legacy_dir}/hw-defaults.conf" \
+    "${legacy_dir}/fancontrol.conf" \
+    "${legacy_dir}/rgb.conf"
+}
+
+write_config_value() {
+  local key="$1" value="$2"
+  install -d -m 0755 "$(dirname "${config}")"
+  python - "$config" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+updated = False
+out = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith(f"{key}="):
+        out.append(f"{key}={value}")
+        updated = True
+    else:
+        out.append(line)
+if not updated:
+    if out and out[-1] != "":
+        out.append("")
+    out.append(f"{key}={value}")
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+}
+
+merge_legacy_configs() {
+  local legacy_files=() path
+
+  while IFS= read -r path; do
+    [[ -f "${path}" ]] || continue
+    legacy_files+=("${path}")
+  done < <(legacy_configs)
+
+  ((${#legacy_files[@]} > 0)) || return 0
+
+  install -d -m 0755 "$(dirname "${config}")"
+  python - "${config}" "${legacy_files[@]}" <<'PY'
+from pathlib import Path
+import sys
+
+config = Path(sys.argv[1])
+legacy_paths = [Path(value) for value in sys.argv[2:]]
+allowed = {
+    "THORCH_CPU_BOOST",
+    "THORCH_FAN_PROFILE",
+    "THORCH_FAN_POLL_SECONDS",
+    "THORCH_FAN_WAIT_SECONDS",
+    "THORCH_FAN_SENSOR_MODE",
+    "THORCH_FAN_PWM_PATH",
+    "THORCH_FAN_TEMP_SENSORS",
+    "THORCH_FAN_T1",
+    "THORCH_FAN_T2",
+    "THORCH_FAN_T3",
+    "THORCH_FAN_T4",
+    "THORCH_FAN_T5",
+    "THORCH_FAN_T6",
+    "THORCH_FAN_MAX_TEMP",
+    "THORCH_FAN_SPEED1",
+    "THORCH_FAN_SPEED2",
+    "THORCH_FAN_SPEED3",
+    "THORCH_FAN_SPEED4",
+    "THORCH_FAN_SPEED5",
+    "THORCH_FAN_SPEED6",
+    "THORCH_FAN_MAX_SPEED",
+    "THORCH_RGB_MODE",
+    "THORCH_RGB_BRIGHTNESS",
+    "THORCH_RGB_STATIC_R",
+    "THORCH_RGB_STATIC_G",
+    "THORCH_RGB_STATIC_B",
+    "THORCH_RGB_POLL_SECONDS",
+}
+
+def parse(path: Path):
+    values = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in allowed:
+            continue
+        values[key] = value.strip()
+    return values
+
+merged = {}
+for path in legacy_paths:
+    merged.update(parse(path))
+
+lines = config.read_text(encoding="utf-8").splitlines() if config.exists() else [
+    "# Thorch Thor hardware defaults and preferences.",
+]
+seen = set()
+out = []
+for line in lines:
+    stripped = line.strip()
+    replaced = False
+    for key, value in merged.items():
+        if stripped.startswith(f"{key}="):
+            out.append(f"{key}={value}")
+            seen.add(key)
+            replaced = True
+            break
+    if not replaced:
+        out.append(line)
+for key, value in merged.items():
+    if key not in seen:
+        if out and out[-1] != "":
+            out.append("")
+        out.append(f"{key}={value}")
+config.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+
+  for path in "${legacy_files[@]}"; do
+    mv -f "${path}" "${path}.migrated-to-hardware.conf"
+  done
+}
+
+run_systemctl() {
+  "${systemctl_cmd}" "$@"
+}
+
+require_root_for_set() {
+  [[ "${EUID}" -eq 0 ]] && return 0
+  [[ "${THORCH_HARDWARE_SKIP_PKEXEC:-0}" == "1" ]] && return 0
+
+  if command -v pkexec >/dev/null 2>&1; then
+    exec pkexec /usr/bin/thorch-hardwarectl "$@"
+  fi
+
+  exec sudo /usr/bin/thorch-hardwarectl "$@"
+}
+
+apply_cpu_boost() {
+  "${hw_defaults_cmd}" apply
+}
+
+apply_fan_profile() {
+  run_systemctl try-restart thorch-fancontrol.service >/dev/null 2>&1 || true
+}
+
+apply_rgb_mode() {
+  case "${rgb_mode}" in
+    off)
+      "${rgb_cmd}" off
+      ;;
+    battery)
+      "${rgb_cmd}" battery
+      ;;
+    static)
+      "${rgb_cmd}" set "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}"
+      ;;
+  esac
+}
+
+print_status() {
+  load_config
+  printf 'cpu_boost: %s\n' "${cpu_boost}"
+  printf 'fan_profile: %s\n' "${fan_profile}"
+  printf 'fan_sensor_mode: %s\n' "${fan_sensor_mode}"
+  printf 'rgb_mode: %s\n' "${rgb_mode}"
+  printf 'rgb_brightness: %s\n' "${rgb_brightness}"
+  printf 'rgb_static: %s %s %s\n' "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}"
+}
+
+print_status_json() {
+  load_config
+  python - "${cpu_boost}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
+import json
+import sys
+
+r = int(sys.argv[6])
+g = int(sys.argv[7])
+b = int(sys.argv[8])
+fan_profile = sys.argv[2]
+
+print(json.dumps({
+    "cpu_boost": sys.argv[1],
+    "cpu_boost_enabled": sys.argv[1] == "1",
+    "fan_profile": sys.argv[2],
+    "fan_profile_effective": "moderate" if fan_profile == "auto" else fan_profile,
+    "fan_sensor_mode": sys.argv[3],
+    "rgb_mode": sys.argv[4],
+    "rgb_enabled": sys.argv[4] != "off",
+    "rgb_brightness": int(sys.argv[5]),
+    "rgb_static_r": r,
+    "rgb_static_g": g,
+    "rgb_static_b": b,
+    "rgb_static": [r, g, b],
+    "rgb_static_hex": f"#{r:02X}{g:02X}{b:02X}",
+}, separators=(",", ":")))
+PY
+}
+
+set_cpu_boost() {
+  local value="$1"
+  case "${value}" in
+    on) value="1" ;;
+    off) value="0" ;;
+    1|0) ;;
+    *) die "cpu-boost must be on or off" ;;
+  esac
+  write_config_value THORCH_CPU_BOOST "${value}"
+  apply_cpu_boost
+}
+
+set_fan_state() {
+  local profile_value="$1" sensor_value="$2"
+
+  case "${profile_value}" in
+    quiet|moderate|aggressive|custom|auto) ;;
+    *) die "fan-profile must be quiet, moderate, aggressive, custom, or auto" ;;
+  esac
+  case "${sensor_value}" in
+    max|average) ;;
+    *) die "fan-sensor-mode must be max or average" ;;
+  esac
+
+  write_config_value THORCH_FAN_PROFILE "${profile_value}"
+  write_config_value THORCH_FAN_SENSOR_MODE "${sensor_value}"
+  load_config
+  fan_profile="${profile_value}"
+  fan_sensor_mode="${sensor_value}"
+  apply_fan_profile
+}
+
+set_fan_profile() {
+  local value="$1"
+  load_config
+  set_fan_state "${value}" "${fan_sensor_mode}"
+}
+
+set_fan_sensor_mode() {
+  local value="$1"
+  load_config
+  set_fan_state "${fan_profile}" "${value}"
+}
+
+set_rgb_state() {
+  local mode_value="$1" brightness_value="$2" red="$3" green="$4" blue="$5"
+
+  case "${mode_value}" in
+    off|battery|static) ;;
+    *) die "rgb-mode must be off, battery, or static" ;;
+  esac
+  require_byte rgb-brightness "${brightness_value}"
+  require_byte red "${red}"
+  require_byte green "${green}"
+  require_byte blue "${blue}"
+
+  write_config_value THORCH_RGB_MODE "${mode_value}"
+  write_config_value THORCH_RGB_BRIGHTNESS "${brightness_value}"
+  write_config_value THORCH_RGB_STATIC_R "${red}"
+  write_config_value THORCH_RGB_STATIC_G "${green}"
+  write_config_value THORCH_RGB_STATIC_B "${blue}"
+
+  load_config
+  rgb_mode="${mode_value}"
+  rgb_brightness="${brightness_value}"
+  rgb_static_r="${red}"
+  rgb_static_g="${green}"
+  rgb_static_b="${blue}"
+  apply_rgb_mode
+}
+
+set_rgb_mode() {
+  local value="$1"
+  load_config
+  set_rgb_state "${value}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}"
+}
+
+set_rgb_brightness() {
+  local value="$1"
+  load_config
+  set_rgb_state "${rgb_mode}" "${value}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}"
+}
+
+set_rgb_color() {
+  local red="$1" green="$2" blue="$3"
+  load_config
+  set_rgb_state static "${rgb_brightness}" "${red}" "${green}" "${blue}"
+}
+
+select_cpu_boost_menu() {
+  local value
+  load_config
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "CPU boost" \
+    on "Enabled" "$([[ "${cpu_boost}" == "1" ]] && echo on || echo off)" \
+    off "Disabled" "$([[ "${cpu_boost}" == "0" ]] && echo on || echo off)")" || return 0
+  "${0}" set cpu-boost "${value}"
+}
+
+select_fan_profile_menu() {
+  local value
+  load_config
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "Fan profile" \
+    quiet "Quieter ramp" "$([[ "${fan_profile}" == "quiet" ]] && echo on || echo off)" \
+    moderate "Balanced default" "$([[ "${fan_profile}" == "moderate" || "${fan_profile}" == "auto" ]] && echo on || echo off)" \
+    aggressive "Earlier cooling" "$([[ "${fan_profile}" == "aggressive" ]] && echo on || echo off)" \
+    custom "Manual thresholds" "$([[ "${fan_profile}" == "custom" ]] && echo on || echo off)")" || return 0
+  "${0}" set fan-profile "${value}"
+}
+
+select_rgb_mode_menu() {
+  local value
+  load_config
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "RGB mode" \
+    battery "Battery status" "$([[ "${rgb_mode}" == "battery" ]] && echo on || echo off)" \
+    static "Static color" "$([[ "${rgb_mode}" == "static" ]] && echo on || echo off)" \
+    off "Off" "$([[ "${rgb_mode}" == "off" ]] && echo on || echo off)")" || return 0
+  "${0}" set rgb-mode "${value}"
+}
+
+select_rgb_color_menu() {
+  local color red green blue
+  load_config
+  color="$("${kdialog_cmd}" --title "Thorch Hardware" --getcolor --default "#$(printf '%02X%02X%02X' "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}")")" || return 0
+  [[ "${color}" =~ ^#([0-9A-Fa-f]{6})$ ]] || return 0
+  red=$((16#${BASH_REMATCH[1]:0:2}))
+  green=$((16#${BASH_REMATCH[1]:2:2}))
+  blue=$((16#${BASH_REMATCH[1]:4:2}))
+  "${0}" set rgb-color "${red}" "${green}" "${blue}"
+}
+
+menu() {
+  command -v "${kdialog_cmd}" >/dev/null 2>&1 || die "kdialog is not installed"
+  while true; do
+    load_config
+    local choice
+    choice="$("${kdialog_cmd}" --title "Thorch Hardware" --menu "Choose a hardware setting" \
+      cpu "CPU boost: $([[ "${cpu_boost}" == "1" ]] && printf 'enabled' || printf 'disabled')" \
+      fan "Fan profile: ${fan_profile}" \
+      sensor "Fan sensor mode: ${fan_sensor_mode}" \
+      rgb "RGB mode: ${rgb_mode}" \
+      color "RGB static color: ${rgb_static_r},${rgb_static_g},${rgb_static_b}")" || break
+    case "${choice}" in
+      cpu) select_cpu_boost_menu ;;
+      fan) select_fan_profile_menu ;;
+      sensor)
+        choice="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "Fan sensor mode" \
+          max "Use hottest sensor" "$([[ "${fan_sensor_mode}" == "max" ]] && echo on || echo off)" \
+          average "Use average sensor temperature" "$([[ "${fan_sensor_mode}" == "average" ]] && echo on || echo off)")" || continue
+        "${0}" set fan-sensor-mode "${choice}"
+        ;;
+      rgb) select_rgb_mode_menu ;;
+      color) select_rgb_color_menu ;;
+    esac
+  done
+}
+
+cmd="${1:-status}"
+case "${cmd}" in
+  status)
+    print_status
+    ;;
+  status-json)
+    print_status_json
+    ;;
+  migrate)
+    require_root_for_set migrate
+    merge_legacy_configs
+    ;;
+  set)
+    shift
+    require_root_for_set set "$@"
+    subcmd="${1:-}"
+    case "${subcmd}" in
+      cpu-boost)
+        [[ "$#" -eq 2 ]] || usage
+        set_cpu_boost "$2"
+        ;;
+      fan-profile)
+        [[ "$#" -eq 2 ]] || usage
+        set_fan_profile "$2"
+        ;;
+      fan-sensor-mode)
+        [[ "$#" -eq 2 ]] || usage
+        set_fan_sensor_mode "$2"
+        ;;
+      fan-state)
+        [[ "$#" -eq 3 ]] || usage
+        set_fan_state "$2" "$3"
+        ;;
+      rgb-mode)
+        [[ "$#" -eq 2 ]] || usage
+        set_rgb_mode "$2"
+        ;;
+      rgb-brightness)
+        [[ "$#" -eq 2 ]] || usage
+        set_rgb_brightness "$2"
+        ;;
+      rgb-color)
+        [[ "$#" -eq 4 ]] || usage
+        set_rgb_color "$2" "$3" "$4"
+        ;;
+      rgb-state)
+        [[ "$#" -eq 6 ]] || usage
+        set_rgb_state "$2" "$3" "$4" "$5" "$6"
+        ;;
+      *)
+        usage
+        ;;
+    esac
+    ;;
+  menu)
+    menu
+    ;;
+  *)
+    usage
+    ;;
+esac

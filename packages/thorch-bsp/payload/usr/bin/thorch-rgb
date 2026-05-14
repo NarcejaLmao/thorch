@@ -23,7 +23,7 @@ warn() {
   printf 'thorch-rgb: %s\n' "$*" >&2
 }
 
-config="${THORCH_RGB_CONFIG:-/etc/thorch/rgb.conf}"
+config="${THORCH_RGB_CONFIG:-${THORCH_HARDWARE_CONFIG:-/etc/thorch/hardware.conf}}"
 sysfs_root="${THORCH_RGB_SYSFS_ROOT:-/sys}"
 led_root="${THORCH_RGB_LED_ROOT:-${sysfs_root}/class/leds}"
 power_root="${THORCH_RGB_POWER_SUPPLY_ROOT:-${sysfs_root}/class/power_supply}"
@@ -93,32 +93,6 @@ load_config() {
   static_g="${configured_static_g}"
   static_b="${configured_static_b}"
   poll_seconds="${configured_poll_seconds}"
-}
-
-save_config() {
-  local next_mode="$1" next_r="${2:-${static_r}}" next_g="${3:-${static_g}}" next_b="${4:-${static_b}}" tmp
-
-  case "${next_mode}" in
-    battery|static|off) ;;
-    *) die "mode must be battery, static, or off" ;;
-  esac
-  require_byte "THORCH_RGB_STATIC_R" "${next_r}"
-  require_byte "THORCH_RGB_STATIC_G" "${next_g}"
-  require_byte "THORCH_RGB_STATIC_B" "${next_b}"
-
-  install -d -m 0755 "$(dirname "${config}")"
-  tmp="${config}.tmp.$$"
-  {
-    printf '# Thorch Thor RGB LED configuration.\n'
-    printf '# This file is updated by thorch-rgb when modes are changed.\n'
-    printf 'THORCH_RGB_MODE=%s\n' "${next_mode}"
-    printf 'THORCH_RGB_BRIGHTNESS=%s\n' "${brightness}"
-    printf 'THORCH_RGB_STATIC_R=%s\n' "${next_r}"
-    printf 'THORCH_RGB_STATIC_G=%s\n' "${next_g}"
-    printf 'THORCH_RGB_STATIC_B=%s\n' "${next_b}"
-    printf 'THORCH_RGB_POLL_SECONDS=%s\n' "${poll_seconds}"
-  } > "${tmp}"
-  mv -f "${tmp}" "${config}"
 }
 
 try_systemctl() {
@@ -458,7 +432,6 @@ case "${cmd}" in
     ;;
   off)
     load_config
-    save_config off
     try_systemctl stop thorch-rgb-battery.service
     if has_complete_leds; then
       apply_rgb 0 0 0
@@ -476,7 +449,6 @@ case "${cmd}" in
     require_byte "green" "$3"
     require_byte "blue" "$4"
     require_leds
-    save_config static "$2" "$3" "$4"
     try_systemctl stop thorch-rgb-battery.service
     apply_rgb "$2" "$3" "$4"
     ;;
@@ -508,7 +480,6 @@ case "${cmd}" in
     load_config
     require_leds
     detect_power_supply >/dev/null || die "no battery power supply found under ${power_root}"
-    save_config battery
     apply_battery_once || die "could not read battery status from ${power_root}"
     try_systemctl restart thorch-rgb-battery.service
     ;;

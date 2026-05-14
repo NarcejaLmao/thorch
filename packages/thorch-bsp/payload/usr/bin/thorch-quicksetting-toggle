@@ -4,6 +4,7 @@ set -euo pipefail
 state_dir="${THORCH_QUICKSETTING_STATE_DIR:-/var/lib/thorch/quicksettings}"
 systemctl_cmd="${THORCH_QUICKSETTING_SYSTEMCTL:-systemctl}"
 rgb_cmd="${THORCH_QUICKSETTING_RGB:-/usr/bin/thorch-rgb}"
+hardware_cmd="${THORCH_QUICKSETTING_HARDWARECTL:-/usr/bin/thorch-hardwarectl}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -112,13 +113,11 @@ restore_rgb_mode() {
 
   case "${mode}" in
     battery)
-      "${rgb_cmd}" battery
-      run_systemctl enable thorch-rgb.service thorch-rgb-battery.service
+      "${hardware_cmd}" set rgb-mode battery
       ;;
     static)
       read -r red green blue < <(rgb_static_values)
-      "${rgb_cmd}" set "${red}" "${green}" "${blue}"
-      run_systemctl enable thorch-rgb.service
+      "${hardware_cmd}" set rgb-color "${red}" "${green}" "${blue}"
       ;;
   esac
 }
@@ -131,7 +130,7 @@ toggle_rgb() {
     restore_rgb_mode
   else
     save_rgb_mode "${mode}"
-    "${rgb_cmd}" off
+    "${hardware_cmd}" set rgb-mode off
   fi
 }
 

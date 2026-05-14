@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sysfs_root="${THORCH_HW_DEFAULTS_SYSFS_ROOT:-/sys}"
+cpu_boost_setting="${THORCH_CPU_BOOST:-1}"
+
+boolean_to_sysfs() {
+  case "$1" in
+    1|true|TRUE|yes|YES|on|ON|enabled|ENABLED)
+      printf '1\n'
+      ;;
+    *)
+      printf '0\n'
+      ;;
+  esac
+}
+
+cpu_boost_paths() {
+  local -a paths=()
+  local path
+
+  if [[ -w "${sysfs_root}/devices/system/cpu/cpufreq/boost" ]]; then
+    paths+=("${sysfs_root}/devices/system/cpu/cpufreq/boost")
+  fi
+
+  shopt -s nullglob
+  for path in "${sysfs_root}"/devices/system/cpu/cpufreq/policy*/boost; do
+    [[ -w "${path}" ]] || continue
+    paths+=("${path}")
+  done
+  shopt -u nullglob
+
+  printf '%s\n' "${paths[@]}"
+}
+
+apply_cpu_boost() {
+  local value path
+  value="$(boolean_to_sysfs "${cpu_boost_setting}")"
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    printf '%s\n' "${value}" > "${path}"
+  done < <(cpu_boost_paths)
+}
+
+status_defaults() {
+  local path
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    printf '%s=%s\n' "${path}" "$(cat "${path}")"
+  done < <(cpu_boost_paths)
+}
+
+case "${1:-apply}" in
+  apply)
+    apply_cpu_boost
+    ;;
+  status)
+    status_defaults
+    ;;
+  *)
+    printf 'usage: %s [apply|status]\n' "$0" >&2
+    exit 2
+    ;;
+esac
