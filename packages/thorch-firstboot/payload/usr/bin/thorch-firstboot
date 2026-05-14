@@ -264,10 +264,13 @@ class Backend(QObject):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    @Slot(str, str)
-    def connectWifi(self, ssid, password):
+    @Slot(str, str, str)
+    def connectWifi(self, ssid, password, security):
         def worker():
-            payload = json.dumps({"ssid": ssid, "password": password}, separators=(",", ":"))
+            payload = json.dumps(
+                {"ssid": ssid, "password": password, "security": security},
+                separators=(",", ":"),
+            )
             ok, message, _result = self._run_helper("wifi-connect-json", payload=payload)
             self.wifiConnectFinished.emit(ok, message)
 

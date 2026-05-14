@@ -87,6 +87,40 @@ QtObject {
         return wifiNetworks[wifiSelectedIndex].ssid || "";
     }
 
+    function selectedWifiNetwork() {
+        if (wifiSelectedIndex < 0 || wifiSelectedIndex >= wifiNetworks.length) {
+            return null;
+        }
+        return wifiNetworks[wifiSelectedIndex];
+    }
+
+    function selectedWifiSecurity() {
+        const network = selectedWifiNetwork();
+        if (!network) {
+            return "";
+        }
+        return network.security || "";
+    }
+
+    function selectedWifiRequiresPassword() {
+        return selectedWifiSecurity().length > 0;
+    }
+
+    function canConnectSelectedWifi() {
+        if (selectedWifiSsid().length === 0 || wifiScanning || wifiConnecting) {
+            return false;
+        }
+        return !selectedWifiRequiresPassword() || wifiPassword.length > 0;
+    }
+
+    function selectWifiNetwork(index) {
+        if (wifiSelectedIndex === index) {
+            return;
+        }
+        wifiSelectedIndex = index;
+        wifiPassword = "";
+    }
+
     function wifiLabel(network) {
         const lock = network.security && network.security.length > 0 ? qsTr(" secured") : qsTr(" open");
         const active = network.active ? qsTr("Connected: ") : "";

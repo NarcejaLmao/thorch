@@ -479,6 +479,13 @@ def split_nmcli_line(line):
     return fields
 
 
+def normalize_wifi_security(value):
+    security = str(value or "").strip()
+    if security in {"", "--", "NONE", "(none)"}:
+        return ""
+    return security
+
+
 def wifi_scan_json():
     if not shutil.which("nmcli"):
         emit_json(False, "Wi-Fi setup tools are not available on this system.", code=1, networks=[])
@@ -510,7 +517,7 @@ def wifi_scan_json():
             signal_value = 0
         networks.append({
             "ssid": ssid,
-            "security": security.strip(),
+            "security": normalize_wifi_security(security),
             "signal": signal_value,
             "active": active.strip() == "*",
         })
@@ -529,6 +536,7 @@ def wifi_connect_json():
     payload = read_payload()
     ssid = string_field(payload, "ssid").strip()
     password = string_field(payload, "password")
+    security = normalize_wifi_security(payload.get("security", ""))
 
     if not ssid:
         emit_json(False, "Choose a Wi-Fi network first.", code=1)
@@ -536,6 +544,8 @@ def wifi_connect_json():
         emit_json(False, "Wi-Fi fields must not contain newlines.", code=1)
     if not shutil.which("nmcli"):
         emit_json(False, "Wi-Fi setup tools are not available on this system.", code=1)
+    if security and not password:
+        emit_json(False, "Enter the Wi-Fi password for this network.", code=1)
 
     command = ["nmcli", "device", "wifi", "connect", ssid]
     if password:
