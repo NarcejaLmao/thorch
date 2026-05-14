@@ -272,6 +272,9 @@ LANG=C.UTF-8
 EOF
 run_rootfs "for g in wheel adm video input audio storage render; do getent group \$g >/dev/null || groupadd -r \$g; done"
 run_rootfs "id ${thorch_user_q} >/dev/null 2>&1 || useradd -m -s /bin/bash -G wheel,adm,video,input,audio,storage,render ${thorch_user_q}"
+if [[ "${THORCH_USER}" != "alarm" ]]; then
+  run_rootfs "if id alarm >/dev/null 2>&1; then userdel -r alarm >/dev/null 2>&1 || usermod -L -s /usr/bin/nologin alarm; fi"
+fi
 set_rootfs_passwords
 install -d "${rootfs_dir}/etc/sudoers.d"
 cat > "${rootfs_dir}/etc/sudoers.d/10-thorch-wheel" <<'EOF'
