@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v gpcal >/dev/null 2>&1; then
+  echo "GPcal is not installed." >&2
+  exit 1
+fi
+
+if [[ "${EUID}" -eq 0 ]]; then
+  cd /usr/share/gpcal
+  pyxel_site="/usr/share/gpcal/pyxel/lib/python3.13/site-packages"
+  if [[ ! -d "${pyxel_site}" ]]; then
+    echo "GPcal Pyxel runtime is missing: ${pyxel_site}" >&2
+    exit 1
+  fi
+  exec env \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="${pyxel_site}${PYTHONPATH:+:${PYTHONPATH}}" \
+    python3 main.py "$@"
+fi
+
+if command -v pkexec >/dev/null 2>&1; then
+  exec pkexec /usr/bin/env \
+    DISPLAY="${DISPLAY:-}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    HOME="${HOME}" \
+    /usr/bin/thorch-start-gpcal "$@"
+fi
+
+exec sudo -E /usr/bin/thorch-start-gpcal "$@"

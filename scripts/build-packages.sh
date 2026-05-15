@@ -94,7 +94,7 @@ stock_kernel_firmware=(
   linux-firmware-whence
 )
 
-packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud)
+packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration)
 if [[ "${skip_kernel}" -eq 0 ]]; then
   packages=(linux-thorch "${packages[@]}")
 fi

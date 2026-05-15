@@ -145,7 +145,7 @@ refresh. If ROCKNIX-derived kernel artifacts changed, run
 The default image package set is:
 
 ```bash
-linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud
+linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud thorch-gamepadcalibration
 ```
 
 `thorch-kde-defaults` installs Firefox and the core KDE desktop applications:

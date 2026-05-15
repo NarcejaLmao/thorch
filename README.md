@@ -194,7 +194,8 @@ notes.
 The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
 thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
-thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
+thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud
+thorch-gamepadcalibration`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
