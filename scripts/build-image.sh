@@ -329,8 +329,6 @@ rootfs_services=(
   sshd.service
   sddm.service
   systemd-binfmt.service
-  thorch-usb-gadget.service
-  thorch-usb-network.service
   thorch-rgb.service
   thorch-rgb-battery.service
   thorch-rgb-poweroff.service
