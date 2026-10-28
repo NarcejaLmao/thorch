@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: thorch-build
-      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      IMAGE_REGISTRY: ghcr.io/narcejalmao
 
     steps:
       - name: Checkout
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     env:
       IMAGE_NAME: thorch-build
-      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      IMAGE_REGISTRY: ghcr.io/narcejalmao
       THORCH_DOCKER_BASE_IMAGE: menci/archlinuxarm:base-devel@sha256:7dfa70d355b9f4daf754a528b9f140c122952efbd9b52742d22379391835151b
 
     steps:

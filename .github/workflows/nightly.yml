@@ -40,7 +40,7 @@ jobs:
       # ARM64 image published by Builder Image run 29935184834. Update this digest only
       # after the replacement builder workflow reports and verifies its digest.
       THORCH_BUILDER_DIGEST: sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
-      THORCH_DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/thorch-build@sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
+      THORCH_DOCKER_IMAGE: ghcr.io/narcejalmao/thorch-build@sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
       THORCH_DOCKER_RUN_ARGS: --env THORCH_REQUIRE_MOUNT_INTEGRATION=1
       THORCH_IMAGE_SIZE: ${{ inputs.image_size || 'auto' }}
       THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'btrfs' }}
