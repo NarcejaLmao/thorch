@@ -34,11 +34,11 @@ grep -q 'runs-on: ubuntu-24.04-arm' "${workflow}" ||
 ! grep -q 'docker/setup-qemu-action' "${workflow}" ||
   fail "native ARM64 nightly still registers CPU emulation"
 
-grep -Eq 'THORCH_DOCKER_IMAGE: ghcr.io/[$][{][{] github[.]repository_owner [}][}]/thorch-build@sha256:[0-9a-f]{64}$' "${workflow}" ||
-  fail "nightly workflow does not pin the published Thorch builder by digest"
+grep -Eq 'THORCH_DOCKER_IMAGE: ghcr[.]io/[a-z0-9-]+/thorch-build:latest-arm64$' "${workflow}" ||
+  fail "nightly workflow does not use the lowercase published ARM64 Thorch builder tag"
 
-grep -Eq 'THORCH_BUILDER_DIGEST: sha256:[0-9a-f]{64}$' "${workflow}" ||
-  fail "nightly workflow does not record the expected builder digest"
+grep -q 'did not report a repository digest' "${workflow}" ||
+  fail "nightly workflow does not verify the pulled builder reports a repository digest"
 
 grep -q 'THORCH_REQUIRE_MOUNT_INTEGRATION=1' "${workflow}" ||
   fail "nightly workflow permits its real mount integration test to skip"

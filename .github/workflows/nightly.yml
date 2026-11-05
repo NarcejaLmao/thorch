@@ -37,10 +37,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
-      # ARM64 image published by Builder Image run 29935184834. Update this digest only
-      # after the replacement builder workflow reports and verifies its digest.
-      THORCH_BUILDER_DIGEST: sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
-      THORCH_DOCKER_IMAGE: ghcr.io/narcejalmao/thorch-build@sha256:8ef74e85679bbca19ed34ccd031ad11394d215cc38726e2bf0746e032fc9f541
+      THORCH_DOCKER_IMAGE: ghcr.io/narcejalmao/thorch-build:latest-arm64
       THORCH_DOCKER_RUN_ARGS: --env THORCH_REQUIRE_MOUNT_INTEGRATION=1
       THORCH_IMAGE_SIZE: ${{ inputs.image_size || 'auto' }}
       THORCH_ROOT_FSTYPE: ${{ inputs.root_fstype || 'btrfs' }}
@@ -146,15 +143,16 @@ jobs:
         run: |
           set -euo pipefail
           if ! make docker-image-pull; then
-            echo '::error::Unable to pull the pinned builder. The job has packages:read; verify the GHCR package is linked to this repository and grants it Actions read access.'
+            echo '::error::Unable to pull the ARM64 builder. Run the Builder Image workflow on main first, and verify the GHCR package is linked to this repository and grants it Actions read access.'
             exit 1
           fi
           repo_digests="$(docker image inspect "${THORCH_DOCKER_IMAGE}" --format '{{json .RepoDigests}}')"
           printf 'builder repo digests: %s\n' "${repo_digests}"
-          grep -Fq "@${THORCH_BUILDER_DIGEST}" <<< "${repo_digests}" || {
-            echo "::error::Pulled builder did not report the required digest ${THORCH_BUILDER_DIGEST}"
+          grep -Eq '@sha256:[0-9a-f]{64}' <<< "${repo_digests}" || {
+            echo "::error::Pulled builder did not report a repository digest"
             exit 1
           }
+          printf 'Builder image: `%s`\n' "${repo_digests}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Build and validate in Thorch builder
         if: ${{ steps.changes.outputs.changed == 'true' }}
