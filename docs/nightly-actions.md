@@ -90,17 +90,17 @@ manually from the Actions tab. Manual runs can override:
 - `publish_release`: defaults to enabled.
 
 Scheduled and manual runs load `ROCKNIX_REF`, `ROCKNIX_KERNEL_SOURCE`, and
-`ROCKNIX_KERNEL_RELEASE` from the versioned defaults in `config/thorch.conf`.
-The workflow requires a full source commit SHA and a dated nightly release tag;
-it rejects rolling values such as `next` and `latest`. Advance those pins in a
-reviewed commit after validating the new combination. Manual runs can select
-ext4 when an uncompressed compatibility image is needed.
+`ROCKNIX_KERNEL_RELEASE` from the defaults in `config/thorch.conf`, which track
+ROCKNIX's `next` branch and the newest `latest` nightly. When a build is needed,
+the "Resolve latest ROCKNIX nightly" step turns them into the newest dated
+`nightly-YYYYMMDD` release that has an SM8550 image and the full `next` commit
+SHA, and the build manifest records both. The image is verified against the
+release's adjacent `.sha256` asset. A dated tag or full SHA in the config still
+works for reproducing a specific build. Manual runs can select ext4 when an
+uncompressed compatibility image is needed.
 
-The current kernel-image pin is `nightly-20260728`, whose SM8550 asset was
-validated by successful Thorch nightly run
-[`30375469331`](https://github.com/thorch-os/thorch/actions/runs/30375469331).
-That run recorded the source image SHA-256 as
-`a8c2994b0a4cf243c7cfead04539f13b4e9688c5f1628fec310914afb1b27577`.
+The Linux kernel (`THORCH_KERNEL_REF`), FEX and Mesa remain pinned in
+`config/thorch.conf` and their PKGBUILDs; advance them in a reviewed commit.
 
 Before preparing the host or starting Docker, the workflow downloads the most
 recent build manifest for the requested configuration. If that manifest already

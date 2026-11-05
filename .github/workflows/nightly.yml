@@ -52,20 +52,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Load committed ROCKNIX pins
+      - name: Load ROCKNIX tracking config
         run: |
           set -euo pipefail
           source config/thorch.conf
-          [[ "${ROCKNIX_REF}" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::ROCKNIX_REF must be a full committed SHA, got ${ROCKNIX_REF}"
+          [[ "${ROCKNIX_REF}" =~ ^[0-9a-f]{40}$ || "${ROCKNIX_REF}" == "next" ]] || {
+            echo "::error::ROCKNIX_REF must be a full commit SHA or next, got ${ROCKNIX_REF}"
             exit 1
           }
           [[ "${ROCKNIX_KERNEL_SOURCE}" == "nightly" ]] || {
             echo "::error::ROCKNIX_KERNEL_SOURCE must be pinned to nightly"
             exit 1
           }
-          [[ "${ROCKNIX_KERNEL_RELEASE}" =~ ^nightly-[0-9]{8}$ ]] || {
-            echo "::error::ROCKNIX_KERNEL_RELEASE must be a dated nightly tag, got ${ROCKNIX_KERNEL_RELEASE}"
+          [[ "${ROCKNIX_KERNEL_RELEASE}" =~ ^nightly-[0-9]{8}$ || "${ROCKNIX_KERNEL_RELEASE}" == "latest" ]] || {
+            echo "::error::ROCKNIX_KERNEL_RELEASE must be latest or a dated nightly tag, got ${ROCKNIX_KERNEL_RELEASE}"
             exit 1
           }
           {
@@ -119,6 +119,38 @@ jobs:
             printf 'config=%s\n' "${config}"
             printf 'manifest_asset=%s\n' "${manifest_asset}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve latest ROCKNIX nightly
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        run: |
+          set -euo pipefail
+          if [[ "${ROCKNIX_KERNEL_RELEASE}" == "latest" ]]; then
+            # Newest dated nightly that actually carries an SM8550 image.
+            tag="$(
+              gh api 'repos/ROCKNIX/distribution-nightly/releases?per_page=30' --jq '
+                [.[] | select(.tag_name | test("^nightly-[0-9]{8}$"))
+                     | select(any(.assets[]; .name == "ROCKNIX-SM8550.aarch64-" + (.tag_name | sub("^nightly-"; "")) + ".img.gz"))
+                     | .tag_name][0] // empty'
+            )"
+            [[ "${tag}" =~ ^nightly-[0-9]{8}$ ]] || {
+              echo "::error::No ROCKNIX nightly with an SM8550 image was found"
+              exit 1
+            }
+            ROCKNIX_KERNEL_RELEASE="${tag}"
+          fi
+          if [[ "${ROCKNIX_REF}" == "next" ]]; then
+            ROCKNIX_REF="$(git ls-remote https://github.com/ROCKNIX/distribution refs/heads/next | cut -f1)"
+            [[ "${ROCKNIX_REF}" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "::error::Unable to resolve ROCKNIX next to a commit"
+              exit 1
+            }
+          fi
+          {
+            printf 'ROCKNIX_REF=%s\n' "${ROCKNIX_REF}"
+            printf 'ROCKNIX_KERNEL_RELEASE=%s\n' "${ROCKNIX_KERNEL_RELEASE}"
+          } >> "${GITHUB_ENV}"
+          printf 'ROCKNIX nightly `%s`, source `%s`\n' \
+            "${ROCKNIX_KERNEL_RELEASE}" "${ROCKNIX_REF}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Prepare host runner
         if: ${{ steps.changes.outputs.changed == 'true' }}

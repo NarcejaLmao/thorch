@@ -17,8 +17,8 @@ fail() {
 }
 
 release_default="$(sed -n 's/^ROCKNIX_KERNEL_RELEASE=.*:-\([^}]*\)}.*$/\1/p' "${root}/config/thorch.conf")"
-[[ "${release_default}" =~ ^nightly-[0-9]{8}$ ]] ||
-  fail "default ROCKNIX runtime release is not pinned to an immutable nightly tag"
+[[ "${release_default}" =~ ^nightly-[0-9]{8}$ || "${release_default}" == "latest" ]] ||
+  fail "default ROCKNIX runtime release is not latest or a dated nightly tag"
 
 kernel_dir="${work}/kernel"
 release="test-release+rocknix.1"

@@ -58,11 +58,14 @@ grep -q 'make docker-nightly' "${workflow}" ||
 grep -q 'source config/thorch.conf' "${workflow}" ||
   fail "nightly workflow does not load the committed ROCKNIX pins"
 
-grep -q 'ROCKNIX_REF must be a full committed SHA' "${workflow}" ||
-  fail "nightly workflow does not reject a rolling ROCKNIX source ref"
+grep -q 'ROCKNIX_REF must be a full commit SHA or next' "${workflow}" ||
+  fail "nightly workflow does not validate the ROCKNIX source ref"
 
-grep -q 'ROCKNIX_KERNEL_RELEASE must be a dated nightly tag' "${workflow}" ||
-  fail "nightly workflow does not reject a rolling ROCKNIX kernel release"
+grep -q 'ROCKNIX_KERNEL_RELEASE must be latest or a dated nightly tag' "${workflow}" ||
+  fail "nightly workflow does not validate the ROCKNIX kernel release"
+
+grep -q 'name: Resolve latest ROCKNIX nightly' "${workflow}" ||
+  fail "nightly workflow does not resolve the latest ROCKNIX nightly"
 
 ! grep -q 'rocknix_ref:' "${workflow}" ||
   fail "nightly workflow still exposes an uncommitted ROCKNIX source override"
@@ -73,14 +76,14 @@ grep -q 'ROCKNIX_KERNEL_RELEASE must be a dated nightly tag' "${workflow}" ||
 rocknix_ref_default="$(
   sed -n 's/^ROCKNIX_REF=.*:-\([^}]*\)}.*$/\1/p' "${config}"
 )"
-[[ "${rocknix_ref_default}" =~ ^[0-9a-f]{40}$ ]] ||
-  fail "default ROCKNIX source is not pinned to a full commit SHA"
+[[ "${rocknix_ref_default}" =~ ^[0-9a-f]{40}$ || "${rocknix_ref_default}" == "next" ]] ||
+  fail "default ROCKNIX source is not a full commit SHA or next"
 
 rocknix_release_default="$(
   sed -n 's/^ROCKNIX_KERNEL_RELEASE=.*:-\([^}]*\)}.*$/\1/p' "${config}"
 )"
-[[ "${rocknix_release_default}" =~ ^nightly-[0-9]{8}$ ]] ||
-  fail "default ROCKNIX kernel image is not pinned to a dated nightly tag"
+[[ "${rocknix_release_default}" =~ ^nightly-[0-9]{8}$ || "${rocknix_release_default}" == "latest" ]] ||
+  fail "default ROCKNIX kernel image is not latest or a dated nightly tag"
 
 grep -q 'run --privileged' "${makefile}" ||
   fail "Docker wrapper does not use a privileged builder container"

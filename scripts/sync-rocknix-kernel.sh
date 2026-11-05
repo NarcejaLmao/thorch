@@ -168,6 +168,9 @@ fi
 
 github_asset_url() {
   local repo="$1" tag="$2" regex="$3" metadata="" asset_url=""
+  # Older ROCKNIX nightly releases may be pruned from GitHub while their
+  # dated images remain mirrored on SourceForge. Prefer the release asset,
+  # then fall back to the same immutable dated filename on that mirror.
   if metadata="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/tags/${tag}" 2>/dev/null)"; then
     asset_url="$(jq -er --arg regex "${regex}" \
       '[.assets[] | select(.name | test($regex))][0].browser_download_url // empty' \
@@ -214,6 +217,8 @@ latest_stable_tag() {
 asset_name_from_url() {
   local url="$1"
   url="${url%%\?*}"
+  # SourceForge's stable download endpoint ends in /download; preserve the
+  # actual dated asset name so cache validation and decompression still work.
   if [[ "${url}" =~ /([^/]+\.(img\.gz|img))/download$ ]]; then
     printf '%s\n' "${BASH_REMATCH[1]}"
   else

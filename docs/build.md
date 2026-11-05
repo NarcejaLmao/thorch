@@ -79,16 +79,16 @@ runs `scripts/build-thorch-kernel.sh` unless `THORCH_KERNEL_SOURCE_BUILD=0` or
 upstream image, set one of:
 
 ```bash
-ROCKNIX_KERNEL_RELEASE=nightly-20260730 make kernel
+ROCKNIX_KERNEL_RELEASE=latest make kernel
 ROCKNIX_KERNEL_RELEASE=nightly-20260720 ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
 ROCKNIX_KERNEL_IMAGE_SHA256= ROCKNIX_KERNEL_SOURCE=stable ROCKNIX_KERNEL_RELEASE=latest make kernel
 ROCKNIX_KERNEL_IMAGE_URL=https://.../ROCKNIX-SM8550.aarch64-YYYYMMDD.img.gz ROCKNIX_KERNEL_IMAGE_SHA256=<matching-sha256> make kernel
 ```
 
-`ROCKNIX_KERNEL_SOURCE` defaults to `nightly`, and the project config pins a
-specific nightly tag for reproducibility. Set `ROCKNIX_KERNEL_RELEASE=latest`
-to follow the moving nightly head, or use `stable` for the stable release
-stream; also update `ROCKNIX_KERNEL_IMAGE_SHA256`, or set it explicitly empty to
+`ROCKNIX_KERNEL_SOURCE` defaults to `nightly`, and the project config follows
+the newest nightly (`ROCKNIX_KERNEL_RELEASE=latest`, verified against the
+release's checksum asset). Set a dated `nightly-YYYYMMDD` tag for
+reproducibility, or use `stable` for the stable release stream; also update `ROCKNIX_KERNEL_IMAGE_SHA256`, or set it explicitly empty to
 rely only on the selected release's checksum asset. If an upstream image has no
 matching `.sha256` asset, the sync refuses the import unless you provide
 `ROCKNIX_KERNEL_SHA256_URL` or explicitly set `ROCKNIX_KERNEL_ALLOW_UNVERIFIED=1`
@@ -293,7 +293,8 @@ describes their purpose without duplicating mutable source or kernel refs.
 - `ROCKNIX_REPO`: ROCKNIX distribution repository URL.
 - `ROCKNIX_KERNEL_SOURCE`: ROCKNIX image release stream, `nightly` by default; can be `stable`.
 - `ROCKNIX_KERNEL_RELEASE`: release tag/date to import; the project default is
-  pinned in `config/thorch.conf`. Scheduled builds use that committed pin.
+  set in `config/thorch.conf` (`latest` by default). Scheduled builds resolve it
+  to the newest nightly at build time.
 - `ROCKNIX_KERNEL_PLATFORM`: ROCKNIX platform name, default `SM8550`.
 - `ROCKNIX_KERNEL_IMAGE_URL`: explicit ROCKNIX `.img` or `.img.gz` URL.
 - `ROCKNIX_KERNEL_IMAGE_SHA256`: exact pinned image checksum.
