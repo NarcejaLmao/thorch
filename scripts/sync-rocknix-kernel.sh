@@ -167,10 +167,27 @@ else
 fi
 
 github_asset_url() {
-  local repo="$1" tag="$2" regex="$3"
-  curl -fsSL "https://api.github.com/repos/${repo}/releases/tags/${tag}" |
-    jq -er --arg regex "${regex}" '.assets[] | select(.name | test($regex)) | .browser_download_url' |
-    head -n1
+  local repo="$1" tag="$2" regex="$3" metadata="" asset_url=""
+  if metadata="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/tags/${tag}" 2>/dev/null)"; then
+    asset_url="$(jq -er --arg regex "${regex}" \
+      '[.assets[] | select(.name | test($regex))][0].browser_download_url // empty' \
+      <<< "${metadata}" 2>/dev/null || true)"
+  fi
+  if [[ -n "${asset_url}" ]]; then
+    printf '%s\n' "${asset_url}"
+    return 0
+  fi
+
+  if [[ "${repo}" == "ROCKNIX/distribution-nightly" && "${tag}" =~ ^nightly-([0-9]{8})$ ]]; then
+    local release_date="${BASH_REMATCH[1]}" asset_name
+    asset_name="ROCKNIX-${platform}.aarch64-${release_date}.img.gz"
+    if [[ "${asset_name}" =~ ${regex} ]]; then
+      printf 'https://downloads.sourceforge.net/project/rocknix/nightly/%s/%s\n' \
+        "${release_date}" "${asset_name}"
+      return 0
+    fi
+  fi
+  die "unable to find ${regex} in GitHub release ${repo}/${tag} or its SourceForge mirror"
 }
 
 nightly_tag_at_index() {
@@ -197,7 +214,11 @@ latest_stable_tag() {
 asset_name_from_url() {
   local url="$1"
   url="${url%%\?*}"
-  basename "${url}"
+  if [[ "${url}" =~ /([^/]+\.(img\.gz|img))/download$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    basename "${url}"
+  fi
 }
 
 if [[ -z "${image_url}" ]]; then
@@ -211,7 +232,7 @@ if [[ -z "${image_url}" ]]; then
       [[ "${release}" == nightly-* ]] || die "nightly release must look like nightly-YYYYMMDD: ${release}"
       release_date="${release#nightly-}"
       image_regex="^ROCKNIX-${platform}[.]aarch64-${release_date}[.]img[.]gz$"
-      image_url="$(github_asset_url ROCKNIX/distribution-nightly "${release}" "${image_regex}")"
+      image_url="$(github_asset_url ROCKNIX/distribution-nightly "${release}" "${image_regex}" "")"
       ;;
     stable)
       if [[ "${release}" == "latest" ]]; then
@@ -219,7 +240,7 @@ if [[ -z "${image_url}" ]]; then
       fi
       release_date="${release}"
       image_regex="^ROCKNIX-${platform}[.]aarch64-${release_date}[.]img[.]gz$"
-      image_url="$(github_asset_url ROCKNIX/distribution "${release}" "${image_regex}")"
+      image_url="$(github_asset_url ROCKNIX/distribution "${release}" "${image_regex}" "")"
       ;;
     *)
       die "--source must be nightly or stable"
